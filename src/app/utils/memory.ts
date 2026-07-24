@@ -1,9 +1,14 @@
 import { Redis } from "@upstash/redis";
-import { OpenAIEmbeddings } from "langchain/embeddings/openai";
-import { PineconeClient } from "@pinecone-database/pinecone";
-import { PineconeStore } from "langchain/vectorstores/pinecone";
-import { SupabaseVectorStore } from "langchain/vectorstores/supabase";
+import { OpenAIEmbeddings } from "@langchain/openai";
+import { Pinecone } from "@pinecone-database/pinecone";
+import { PineconeStore } from "@langchain/pinecone";
 import { SupabaseClient, createClient } from "@supabase/supabase-js";
+
+// Must stay in sync with the embedding scripts in src/scripts/. Querying an
+// index with a different model than it was built with returns meaningless
+// results rather than an error, so this is deliberately explicit instead of
+// relying on the library default.
+export const EMBEDDING_MODEL = "text-embedding-3-small";
 
 export type CompanionKey = {
   companionName: string;
@@ -11,15 +16,30 @@ export type CompanionKey = {
   userId: string;
 };
 
+// The subset of a vector-store hit the callers actually use.
+export type SimilarDocument = {
+  pageContent: string;
+};
+
+// Row shape returned by the match_documents function defined in pgvector.sql.
+type MatchDocumentsRow = {
+  id: number;
+  content: string;
+  metadata: Record<string, unknown>;
+  similarity: number;
+};
+
 class MemoryManager {
   private static instance: MemoryManager;
   private history: Redis;
-  private vectorDBClient: PineconeClient | SupabaseClient;
+  private vectorDBClient: Pinecone | SupabaseClient;
 
   public constructor() {
     this.history = Redis.fromEnv();
     if (process.env.VECTOR_DB === "pinecone") {
-      this.vectorDBClient = new PineconeClient();
+      this.vectorDBClient = new Pinecone({
+        apiKey: process.env.PINECONE_API_KEY!,
+      });
     } else {
       const auth = {
         detectSessionInUrl: false,
@@ -28,66 +48,65 @@ class MemoryManager {
       };
       const url = process.env.SUPABASE_URL!;
       const privateKey = process.env.SUPABASE_PRIVATE_KEY!;
-      this.vectorDBClient = createClient(url, privateKey, { auth });
+      // Explicit `any` for the Database generic: inferring it makes supabase-js
+      // recurse past the TypeScript instantiation depth limit (TS2589).
+      this.vectorDBClient = createClient<any>(url, privateKey, { auth });
     }
   }
 
-  public async init() {
-    if (this.vectorDBClient instanceof PineconeClient) {
-      await this.vectorDBClient.init({
-        apiKey: process.env.PINECONE_API_KEY!,
-        environment: process.env.PINECONE_ENVIRONMENT!,
-      });
-    }
+  private embeddings() {
+    return new OpenAIEmbeddings({
+      apiKey: process.env.OPENAI_API_KEY,
+      model: EMBEDDING_MODEL,
+    });
   }
 
   public async vectorSearch(
     recentChatHistory: string,
     companionFileName: string
-  ) {
-    if (process.env.VECTOR_DB === "pinecone") {
-      console.log("INFO: using Pinecone for vector search.");
-      const pineconeClient = <PineconeClient>this.vectorDBClient;
-
-      const pineconeIndex = pineconeClient.Index(
-        process.env.PINECONE_INDEX! || ""
-      );
-
-      const vectorStore = await PineconeStore.fromExistingIndex(
-        new OpenAIEmbeddings({ openAIApiKey: process.env.OPENAI_API_KEY }),
-        { pineconeIndex }
-      );
-
-      const similarDocs = await vectorStore
-        .similaritySearch(recentChatHistory, 3, { fileName: companionFileName })
-        .catch((err) => {
-          console.log("WARNING: failed to get vector search results.", err);
+  ): Promise<SimilarDocument[] | undefined> {
+    try {
+      if (this.vectorDBClient instanceof Pinecone) {
+        console.log("INFO: using Pinecone for vector search.");
+        const pineconeIndex = this.vectorDBClient.Index(
+          process.env.PINECONE_INDEX!
+        );
+        const vectorStore = await PineconeStore.fromExistingIndex(
+          this.embeddings(),
+          { pineconeIndex }
+        );
+        return await vectorStore.similaritySearch(recentChatHistory, 3, {
+          fileName: companionFileName,
         });
-      return similarDocs;
-    } else {
+      }
+
       console.log("INFO: using Supabase for vector search.");
-      const supabaseClient = <SupabaseClient>this.vectorDBClient;
-      const vectorStore = await SupabaseVectorStore.fromExistingIndex(
-        new OpenAIEmbeddings({ openAIApiKey: process.env.OPENAI_API_KEY }),
-        {
-          client: supabaseClient,
-          tableName: "documents",
-          queryName: "match_documents",
-        }
+      // Queried through the match_documents function in pgvector.sql. The
+      // filter scopes the search to this companion's backstory; without it
+      // every companion retrieves every other companion's documents.
+      const queryEmbedding = await this.embeddings().embedQuery(
+        recentChatHistory
       );
-      const similarDocs = await vectorStore
-        .similaritySearch(recentChatHistory, 3)
-        .catch((err) => {
-          console.log("WARNING: failed to get vector search results.", err);
-        });
-      return similarDocs;
+      const { data, error } = await this.vectorDBClient.rpc("match_documents", {
+        query_embedding: queryEmbedding,
+        match_count: 3,
+        filter: { fileName: companionFileName },
+      });
+      if (error) {
+        throw error;
+      }
+      return ((data ?? []) as MatchDocumentsRow[]).map((row) => ({
+        pageContent: row.content,
+      }));
+    } catch (err) {
+      console.log("WARNING: failed to get vector search results.", err);
+      return undefined;
     }
   }
 
   public static async getInstance(): Promise<MemoryManager> {
     if (!MemoryManager.instance) {
       MemoryManager.instance = new MemoryManager();
-      await MemoryManager.instance.init();
     }
     return MemoryManager.instance;
   }

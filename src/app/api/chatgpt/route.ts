@@ -1,16 +1,17 @@
-import { OpenAI } from "langchain/llms/openai";
+import { ChatOpenAI } from "@langchain/openai";
 import dotenv from "dotenv";
-import { LLMChain } from "langchain/chains";
-import { StreamingTextResponse, LangChainStream } from "ai";
+import { StreamingTextResponse } from "ai";
 import clerk from "@clerk/clerk-sdk-node";
-import { CallbackManager } from "langchain/callbacks";
-import { PromptTemplate } from "langchain/prompts";
 import { NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs";
 import MemoryManager from "@/app/utils/memory";
 import { rateLimit } from "@/app/utils/rateLimit";
 
 dotenv.config({ path: `.env.local` });
+
+// gpt-3.5-turbo-16k, which this route used previously, has been retired by
+// OpenAI. gpt-4o-mini is the closest current equivalent on price and latency.
+const CHAT_MODEL = "gpt-4o-mini";
 
 export async function POST(req: Request) {
   let clerkUserId;
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
   await memoryManager.writeToHistory("Human: " + prompt + "\n", companionKey);
   let recentChatHistory = await memoryManager.readLatestHistory(companionKey);
 
-  // query Pinecone
+  // query the vector db
   const similarDocs = await memoryManager.vectorSearch(
     recentChatHistory,
     companionFileName
@@ -100,13 +101,10 @@ export async function POST(req: Request) {
     relevantHistory = similarDocs.map((doc) => doc.pageContent).join("\n");
   }
 
-  const { stream, handlers } = LangChainStream();
-
-  const model = new OpenAI({
+  const model = new ChatOpenAI({
     streaming: true,
-    modelName: "gpt-3.5-turbo-16k",
-    openAIApiKey: process.env.OPENAI_API_KEY,
-    callbackManager: CallbackManager.fromHandlers(handlers),
+    model: CHAT_MODEL,
+    apiKey: process.env.OPENAI_API_KEY,
   });
   model.verbose = true;
 
@@ -114,7 +112,10 @@ export async function POST(req: Request) {
     ? "You reply within 1000 characters."
     : "";
 
-  const chainPrompt = PromptTemplate.fromTemplate(`
+  // Built as a plain string rather than a PromptTemplate: every value is
+  // already interpolated here, and a PromptTemplate would additionally try to
+  // parse any `{`/`}` appearing in a companion's backstory as a variable.
+  const chainPrompt = `
     You are ${name} and are currently talking to ${clerkUserName}.
 
     ${preamble}
@@ -123,31 +124,46 @@ export async function POST(req: Request) {
 
   Below are relevant details about ${name}'s past
   ${relevantHistory}
-  
+
   Below is a relevant conversation history
 
-  ${recentChatHistory}`);
+  ${recentChatHistory}`;
 
-  const chain = new LLMChain({
-    llm: model,
-    prompt: chainPrompt,
+  // Twilio needs the whole reply as JSON, so there is nothing to stream.
+  if (isText) {
+    const result = await model.invoke(chainPrompt);
+    const text =
+      typeof result.content === "string" ? result.content : String(result.content);
+    await memoryManager.writeToHistory(text + "\n", companionKey);
+    return NextResponse.json(text);
+  }
+
+  // Stream tokens to the browser, accumulating them so the finished reply can
+  // be appended to the chat history once the stream completes.
+  const encoder = new TextEncoder();
+  let fullResponse = "";
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for await (const chunk of await model.stream(chainPrompt)) {
+          const token =
+            typeof chunk.content === "string" ? chunk.content : "";
+          if (token) {
+            fullResponse += token;
+            controller.enqueue(encoder.encode(token));
+          }
+        }
+        await memoryManager.writeToHistory(
+          fullResponse + "\n",
+          companionKey
+        );
+        controller.close();
+      } catch (err) {
+        console.log("WARNING: chat completion failed.", err);
+        controller.error(err);
+      }
+    },
   });
 
-  const result = await chain
-    .call({
-      relevantHistory,
-      recentChatHistory: recentChatHistory,
-    })
-    .catch(console.error);
-
-  console.log("result", result);
-  const chatHistoryRecord = await memoryManager.writeToHistory(
-    result!.text + "\n",
-    companionKey
-  );
-  console.log("chatHistoryRecord", chatHistoryRecord);
-  if (isText) {
-    return NextResponse.json(result!.text);
-  }
   return new StreamingTextResponse(stream);
 }

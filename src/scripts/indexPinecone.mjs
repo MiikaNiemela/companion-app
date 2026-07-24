@@ -1,14 +1,19 @@
-// Major ref: https://js.langchain.com/docs/modules/indexes/vector_stores/integrations/pinecone
-import { PineconeClient } from "@pinecone-database/pinecone";
+// Major ref: https://js.langchain.com/docs/integrations/vectorstores/pinecone
+import { Pinecone } from "@pinecone-database/pinecone";
 import dotenv from "dotenv";
-import { Document } from "langchain/document";
-import { OpenAIEmbeddings } from "langchain/embeddings/openai";
-import { PineconeStore } from "langchain/vectorstores/pinecone";
-import { CharacterTextSplitter } from "langchain/text_splitter";
+import { Document } from "@langchain/core/documents";
+import { OpenAIEmbeddings } from "@langchain/openai";
+import { PineconeStore } from "@langchain/pinecone";
+import { CharacterTextSplitter } from "@langchain/textsplitters";
 import fs from "fs";
 import path from "path";
 
 dotenv.config({ path: `.env.local` });
+
+// Must match EMBEDDING_MODEL in src/app/utils/memory.ts. Querying with a
+// different model than the index was built with returns meaningless results
+// rather than an error.
+const EMBEDDING_MODEL = "text-embedding-3-small";
 
 const fileNames = fs.readdirSync("companions");
 const splitter = new CharacterTextSplitter({
@@ -35,16 +40,18 @@ const langchainDocs = await Promise.all(
   })
 );
 
-const client = new PineconeClient();
-await client.init({
-  apiKey: process.env.PINECONE_API_KEY,
-  environment: process.env.PINECONE_ENVIRONMENT,
-});
-const pineconeIndex = client.Index(process.env.PINECONE_INDEX);
+// The modern Pinecone client talks to the global control plane at
+// api.pinecone.io, so it needs only an API key -- there is no longer a
+// PINECONE_ENVIRONMENT to configure.
+const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
+const pineconeIndex = pinecone.Index(process.env.PINECONE_INDEX);
 
 await PineconeStore.fromDocuments(
   langchainDocs.flat().filter((doc) => doc !== undefined),
-  new OpenAIEmbeddings({ openAIApiKey: process.env.OPENAI_API_KEY }),
+  new OpenAIEmbeddings({
+    apiKey: process.env.OPENAI_API_KEY,
+    model: EMBEDDING_MODEL,
+  }),
   {
     pineconeIndex,
   }
