@@ -1,11 +1,12 @@
 import { Redis } from "@upstash/redis";
-import { PromptTemplate } from "langchain/prompts";
-import { LLMChain } from "langchain/chains";
-import { OpenAI } from "langchain/llms/openai";
+import { ChatOpenAI } from "@langchain/openai";
 
 import dotenv from "dotenv";
 import fs from "fs/promises";
 dotenv.config({ path: `.env.local` });
+
+// gpt-3.5-turbo-16k, used here previously, has been retired by OpenAI.
+const CHAT_MODEL = "gpt-4o-mini";
 
 const COMPANION_NAME = process.argv[2];
 const MODEL_NAME = process.argv[3];
@@ -39,33 +40,31 @@ const upstashChatHistory = await history.zrange(
   }
 );
 const recentChat = upstashChatHistory.slice(-30);
-const model = new OpenAI({
-  modelName: "gpt-3.5-turbo-16k",
-  openAIApiKey: process.env.OPENAI_API_KEY,
+const model = new ChatOpenAI({
+  model: CHAT_MODEL,
+  apiKey: process.env.OPENAI_API_KEY,
 });
 model.verbose = true;
 
-const chainPrompt = PromptTemplate.fromTemplate(`
-  ### Background Story: 
+// Built as a plain string rather than a PromptTemplate, so that any `{`/`}`
+// appearing in a companion's backstory is not parsed as a template variable.
+const buildPrompt = (question) => `
+  ### Background Story:
   ${preamble}
-  
+
   ${backgroundStory}
 
-  ### Chat history: 
+  ### Chat history:
   ${seedChat}
 
   ...
   ${recentChat}
 
-  
-  Above is someone whose name is ${COMPANION_NAME}'s story and their chat history with a human. Output answer to the following question. Return only the answer itself 
-  
-  {question}`);
 
-const chain = new LLMChain({
-  llm: model,
-  prompt: chainPrompt,
-});
+  Above is someone whose name is ${COMPANION_NAME}'s story and their chat history with a human. Output answer to the following question. Return only the answer itself
+
+  ${question}`;
+
 const questions = [
   `Greeting: What would ${COMPANION_NAME} say to start a conversation?`,
   `Short Description: In a few sentences, how would ${COMPANION_NAME} describe themselves?`,
@@ -74,16 +73,20 @@ const questions = [
 const results = await Promise.all(
   questions.map(async (question) => {
     try {
-      return await chain.call({ question });
+      const result = await model.invoke(buildPrompt(question));
+      return typeof result.content === "string"
+        ? result.content
+        : String(result.content);
     } catch (error) {
       console.error(error);
+      return "";
     }
   })
 );
 
 let output = "";
 for (let i = 0; i < questions.length; i++) {
-  output += `*****${questions[i]}*****\n${results[i].text}\n\n`;
+  output += `*****${questions[i]}*****\n${results[i]}\n\n`;
 }
 output += `Definition (Advanced)\n${recentChat.join("\n")}`;
 

@@ -1,7 +1,6 @@
 import dotenv from "dotenv";
-import { StreamingTextResponse, LangChainStream } from "ai";
-import { Replicate } from "langchain/llms/replicate";
-import { CallbackManager } from "langchain/callbacks";
+import { StreamingTextResponse } from "ai";
+import Replicate from "replicate";
 import clerk from "@clerk/clerk-sdk-node";
 import MemoryManager from "@/app/utils/memory";
 import { currentUser } from "@clerk/nextjs";
@@ -9,6 +8,9 @@ import { NextResponse } from "next/server";
 import { rateLimit } from "@/app/utils/rateLimit";
 
 dotenv.config({ path: `.env.local` });
+
+const REPLICATE_MODEL =
+  "replicate/vicuna-13b:6282abe6a492de4145d7bb601023762212f9ddbbe78278bd6771c8b3b2f2a13b" as const;
 
 export async function POST(request: Request) {
   const { prompt, isText, userId, userName } = await request.json();
@@ -77,8 +79,6 @@ export async function POST(request: Request) {
   };
   const memoryManager = await MemoryManager.getInstance();
 
-  const { stream, handlers } = LangChainStream();
-
   const records = await memoryManager.readLatestHistory(companionKey);
   if (records.length === 0) {
     await memoryManager.seedChatHistory(seedchat, "\n\n", companionKey);
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
     companionKey
   );
 
-  // Query Pinecone
+  // Query the vector db
 
   let recentChatHistory = await memoryManager.readLatestHistory(companionKey);
 
@@ -105,25 +105,17 @@ export async function POST(request: Request) {
     relevantHistory = similarDocs.map((doc) => doc.pageContent).join("\n");
   }
 
-  // Call Replicate for inference
-  const model = new Replicate({
-    model:
-      "replicate/vicuna-13b:6282abe6a492de4145d7bb601023762212f9ddbbe78278bd6771c8b3b2f2a13b",
-    input: {
-      max_length: 2048,
-    },
-    apiKey: process.env.REPLICATE_API_TOKEN,
-    callbackManager: CallbackManager.fromHandlers(handlers),
+  // Call Replicate for inference. This model is not streamed, so the whole
+  // reply is produced before anything is sent back.
+  const replicate = new Replicate({
+    auth: process.env.REPLICATE_API_TOKEN,
   });
 
-  // Turn verbose on for debugging
-  model.verbose = true;
+  const output = await replicate
+    .run(REPLICATE_MODEL, {
+      input: {
+        prompt: `${preamble}
 
-  let resp = String(
-    await model
-      .call(
-        `${preamble}  
-       
        Below are relevant details about ${name}'s past:
        ${relevantHistory}
 
@@ -131,10 +123,17 @@ export async function POST(request: Request) {
 
        ${recentChatHistory}
        ### ${name}:
-       `
-      )
-      .catch(console.error)
-  );
+       `,
+        max_length: 2048,
+      },
+    })
+    .catch((err) => {
+      console.log("WARNING: Replicate inference failed.", err);
+      return "";
+    });
+
+  // Replicate returns LLM output as an array of token strings.
+  const resp = Array.isArray(output) ? output.join("") : String(output ?? "");
 
   // Right now just using super shoddy string manip logic to get at
   // the dialog.
@@ -142,17 +141,18 @@ export async function POST(request: Request) {
   const cleaned = resp.replaceAll(",", "");
   const chunks = cleaned.split("###");
   const response = chunks[0];
-  // const response = chunks.length > 1 ? chunks[0] : chunks[0];
 
-  await memoryManager.writeToHistory("### " + response.trim(), companionKey);
-  var Readable = require("stream").Readable;
-
-  let s = new Readable();
-  s.push(response);
-  s.push(null);
   if (response !== undefined && response.length > 1) {
     await memoryManager.writeToHistory("### " + response.trim(), companionKey);
   }
 
-  return new StreamingTextResponse(s);
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(response));
+      controller.close();
+    },
+  });
+
+  return new StreamingTextResponse(stream);
 }

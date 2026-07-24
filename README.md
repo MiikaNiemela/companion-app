@@ -101,7 +101,12 @@ d. **Pinecone API key**
 - Create a Pinecone index by visiting https://app.pinecone.io/ and click on "Create Index"
 - Give it an index name (this will be the environment variable `PINECONE_INDEX`)
 - Fill in Dimension as `1536`
-- Once the index is successfully created, click on "API Keys" on the left side nav and create an API key: copy "Environment" value to `PINECONE_ENVIRONMENT` variable, and "Value" to `PINECONE_API_KEY`
+- Once the index is successfully created, click on "API Keys" on the left side nav and create an API key: copy its value to `PINECONE_API_KEY`
+
+**Note** Older versions of this project also required a `PINECONE_ENVIRONMENT`
+value. Pinecone has since replaced the per-environment endpoints with a single
+global control plane at `api.pinecone.io`, so an API key and index name are all
+that is needed.
 
 e. **Upstash API key**
 
