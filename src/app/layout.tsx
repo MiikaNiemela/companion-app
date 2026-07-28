@@ -1,3 +1,4 @@
+// @ts-ignore: CSS side-effect import is handled by Next.js
 import "./globals.css";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
