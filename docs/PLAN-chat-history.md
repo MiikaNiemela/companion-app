@@ -95,12 +95,12 @@ Fix the cause, not the symptom: one write path, one format, shared by every mode
 
 ### Phase 2 — Server-side read path
 
-- [ ] `MemoryManager.readHistoryEntries(companionKey, limit)` — returns `string[]`, optionally with scores (`zrange({ withScores: true })`) so turns can carry timestamps. Leave `readLatestHistory` untouched so prompting behaviour cannot regress.
-- [ ] `getHistory(companionName)` server action in [actions.ts](../src/components/actions.ts):
+- [x] `MemoryManager.readHistoryEntries(companionKey, limit)` — returns `string[]`, optionally with scores (`zrange({ withScores: true })`) so turns can carry timestamps. Leave `readLatestHistory` untouched so prompting behaviour cannot regress.
+- [x] `getHistory(companionName)` server action in [actions.ts](../src/components/actions.ts):
   - resolve the user with Clerk `currentUser()`
   - resolve `modelName` from `companions.json` via `ConfigManager` — **never accept it from the client**, it is half the Redis key
   - read → `parseTranscript` → return a typed `Turn[]` (not the raw-JSON-string pattern the existing action uses)
-- [ ] **Server Action, not an API route.** Server actions post to a page route, which middleware protects; a new `/api/history` would land on the public API surface and need hand-rolled auth like every other route.
+**NOTE! Server Action, not an API route.** Server actions post to a page route, which middleware protects; a new `/api/history` would land on the public API surface and need hand-rolled auth like every other route.
 
 **Decision — seeded turns:** shown as ordinary history for now. The data carries no marker distinguishing seeded from real turns, and inventing one retroactively is not possible. Adding a real message marker to newly written entries, and using it in the history view, is a future item.
 
