@@ -1,6 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
 import dotenv from "dotenv";
-import { StreamingTextResponse } from "ai";
+import { createTextStreamResponse } from "ai";
 import  clerk, { currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import MemoryManager from "@/app/utils/memory";
@@ -139,9 +139,8 @@ export async function POST(req: Request) {
 
   // Stream tokens to the browser, accumulating them so the finished reply can
   // be appended to the chat history once the stream completes.
-  const encoder = new TextEncoder();
   let fullResponse = "";
-  const stream = new ReadableStream<Uint8Array>({
+  const textStream = new ReadableStream<string>({
     async start(controller) {
       try {
         for await (const chunk of await model.stream(chainPrompt)) {
@@ -149,7 +148,7 @@ export async function POST(req: Request) {
             typeof chunk.content === "string" ? chunk.content : "";
           if (token) {
             fullResponse += token;
-            controller.enqueue(encoder.encode(token));
+            controller.enqueue(token);
           }
         }
         await memoryManager.writeToHistory(
@@ -164,5 +163,5 @@ export async function POST(req: Request) {
     },
   });
 
-  return new StreamingTextResponse(stream);
+  return createTextStreamResponse({ textStream });
 }
