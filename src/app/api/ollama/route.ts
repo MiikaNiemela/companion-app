@@ -1,8 +1,7 @@
 import dotenv from "dotenv";
 import { StreamingTextResponse } from "ai";
-import clerk from "@clerk/clerk-sdk-node";
 import { NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs";
+import clerk, { currentUser } from "@clerk/nextjs/server";
 import MemoryManager from "@/app/utils/memory";
 import { rateLimit } from "@/app/utils/rateLimit";
 

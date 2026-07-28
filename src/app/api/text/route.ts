@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import twilio from "twilio";
-import clerk from "@clerk/clerk-sdk-node";
+import clerk from "@clerk/nextjs/server";
 import dotenv from "dotenv";
 import ConfigManager from "@/app/utils/config";
 import { rateLimit } from "@/app/utils/rateLimit";
