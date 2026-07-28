@@ -33,6 +33,10 @@ export default function QAModal({
   } = useCompletion({
     api: "/api/" + example.llm,
     headers: { name: example.name },
+    // The model routes respond with a plain text stream
+    // (createTextStreamResponse); the default "data" protocol would try to
+    // parse it as SSE UI-message events and fail.
+    streamProtocol: "text",
   });
 
   let [blocks, setBlocks] = useState<any[] | null>(null)

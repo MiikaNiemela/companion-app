@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { StreamingTextResponse } from "ai";
+import { createTextStreamResponse } from "ai";
 import { NextResponse } from "next/server";
 import clerk, { currentUser } from "@clerk/nextjs/server";
 import MemoryManager from "@/app/utils/memory";
@@ -161,7 +161,6 @@ ${relevantHistory}`;
   // re-emit them as a plain token stream, and append the full reply to history
   // once the stream closes.
   const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
 
   const consume = async (
     onToken: (t: string) => void
@@ -211,7 +210,7 @@ ${relevantHistory}`;
     return NextResponse.json(full);
   }
 
-  const stream = new ReadableStream<Uint8Array>({
+  const textStream = new ReadableStream<string>({
     async start(controller) {
       try {
         // Buffer the opening tokens so a leading "Name:" can be stripped once,
@@ -220,18 +219,18 @@ ${relevantHistory}`;
         let headFlushed = false;
         const full = await consume((token) => {
           if (headFlushed) {
-            controller.enqueue(encoder.encode(token));
+            controller.enqueue(token);
             return;
           }
           head += token;
           if (head.replace(/^\s+/, "").length < namePrefix.length) return;
           headFlushed = true;
           const cleaned = stripLeadingName(head);
-          if (cleaned) controller.enqueue(encoder.encode(cleaned));
+          if (cleaned) controller.enqueue(cleaned);
         });
         // Reply shorter than the prefix check never flushed above.
         if (!headFlushed && head) {
-          controller.enqueue(encoder.encode(stripLeadingName(head)));
+          controller.enqueue(stripLeadingName(head));
         }
         await memoryManager.writeToHistory(
           stripLeadingName(full) + "\n",
@@ -245,5 +244,5 @@ ${relevantHistory}`;
     },
   });
 
-  return new StreamingTextResponse(stream);
+  return createTextStreamResponse({ textStream });
 }

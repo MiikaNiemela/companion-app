@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { StreamingTextResponse } from "ai";
+import { createTextStreamResponse } from "ai";
 import Replicate from "replicate";
 import MemoryManager from "@/app/utils/memory";
 import clerk, { currentUser } from "@clerk/nextjs/server";
@@ -142,13 +142,15 @@ Stay in character as ${name}. Reply with no more than three sentences. Do not pr
     await memoryManager.writeToHistory(name + ": " + response, companionKey);
   }
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
+  // Replicate already returned the whole reply, so this "stream" is a single
+  // chunk -- it exists only to match the text-stream response shape the
+  // client's completion hook consumes.
+  const textStream = new ReadableStream<string>({
     start(controller) {
-      controller.enqueue(encoder.encode(response));
+      controller.enqueue(response);
       controller.close();
     },
   });
 
-  return new StreamingTextResponse(stream);
+  return createTextStreamResponse({ textStream });
 }
