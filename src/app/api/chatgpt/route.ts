@@ -1,9 +1,8 @@
 import { ChatOpenAI } from "@langchain/openai";
 import dotenv from "dotenv";
 import { StreamingTextResponse } from "ai";
-import clerk from "@clerk/clerk-sdk-node";
+import  clerk, { currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs";
 import MemoryManager from "@/app/utils/memory";
 import { rateLimit } from "@/app/utils/rateLimit";
 
