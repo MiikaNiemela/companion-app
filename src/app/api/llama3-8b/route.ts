@@ -5,6 +5,7 @@ import MemoryManager from "@/app/utils/memory";
 import { clerkClient, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { rateLimit } from "@/app/utils/rateLimit";
+import { stripSpeakerPrefix } from "@/app/utils/transcript";
 
 dotenv.config({ path: `.env.local` });
 
@@ -86,12 +87,9 @@ export async function POST(request: Request) {
 
   const records = await memoryManager.readLatestHistory(companionKey);
   if (records.length === 0) {
-    await memoryManager.seedChatHistory(seedchat, "\n\n", companionKey);
+    await memoryManager.seedChatHistory(seedchat, companionKey);
   }
-  await memoryManager.writeToHistory(
-    "### Human: " + prompt + "\n",
-    companionKey
-  );
+  await memoryManager.writeTurn({ speaker: "user", text: prompt }, companionKey);
 
   // Query the vector db
 
@@ -139,16 +137,15 @@ Stay in character as ${name}. Reply with one sentence to one paragraph. Do not p
 
   // meta-llama-3 instruct returns output as an array of token strings, already
   // clean prose -- no ### markers, so none of the old munging is needed.
-  let response = (Array.isArray(output) ? output.join("") : String(output ?? "")).trim();
   // Defensively drop a leading "Name:" if the model adds one anyway.
-  const namePrefix = `${name}:`;
-  if (response.toLowerCase().startsWith(namePrefix.toLowerCase())) {
-    response = response.slice(namePrefix.length).trim();
-  }
+  const response = stripSpeakerPrefix(
+    (Array.isArray(output) ? output.join("") : String(output ?? "")).trim(),
+    name!
+  ).trim();
 
   if (response.length > 1) {
-    await memoryManager.writeToHistory(
-      "### " + name + ": " + response,
+    await memoryManager.writeTurn(
+      { speaker: "companion", text: response },
       companionKey
     );
   }

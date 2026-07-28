@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { clerkClient, currentUser } from "@clerk/nextjs/server";
 import MemoryManager from "@/app/utils/memory";
 import { rateLimit } from "@/app/utils/rateLimit";
+import { stripSpeakerPrefix } from "@/app/utils/transcript";
 
 dotenv.config({ path: `.env.local` });
 
@@ -88,10 +89,10 @@ export async function POST(req: Request) {
 
   const records = await memoryManager.readLatestHistory(companionKey);
   if (records.length === 0) {
-    await memoryManager.seedChatHistory(seedchat, "\n\n", companionKey);
+    await memoryManager.seedChatHistory(seedchat, companionKey);
   }
 
-  await memoryManager.writeToHistory("Human: " + prompt + "\n", companionKey);
+  await memoryManager.writeTurn({ speaker: "user", text: prompt }, companionKey);
   const recentChatHistory = await memoryManager.readLatestHistory(companionKey);
 
   const similarDocs = await memoryManager.vectorSearch(
@@ -198,19 +199,19 @@ ${relevantHistory}`;
   };
 
   // Some models open with a "Name:" label even when told not to; drop it.
+  // The prefix length is what decides how many tokens the stream below has to
+  // buffer before it can tell whether a label is being written.
   const namePrefix = `${name}:`;
-  const stripLeadingName = (text: string): string => {
-    const t = text.replace(/^\s+/, "");
-    return t.slice(0, namePrefix.length).toLowerCase() ===
-      namePrefix.toLowerCase()
-      ? t.slice(namePrefix.length).replace(/^\s+/, "")
-      : text;
-  };
+  const stripLeadingName = (text: string): string =>
+    stripSpeakerPrefix(text, name!);
 
   // Twilio needs the whole reply as JSON, so drain the stream fully first.
   if (isText) {
     const full = stripLeadingName(await consume(() => {}));
-    await memoryManager.writeToHistory(full + "\n", companionKey);
+    await memoryManager.writeTurn(
+      { speaker: "companion", text: full },
+      companionKey
+    );
     return NextResponse.json(full);
   }
 
@@ -236,8 +237,8 @@ ${relevantHistory}`;
         if (!headFlushed && head) {
           controller.enqueue(stripLeadingName(head));
         }
-        await memoryManager.writeToHistory(
-          stripLeadingName(full) + "\n",
+        await memoryManager.writeTurn(
+          { speaker: "companion", text: stripLeadingName(full) },
           companionKey
         );
         controller.close();

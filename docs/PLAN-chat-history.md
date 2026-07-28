@@ -15,8 +15,9 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md) (concerns chapter), [FRONTEND.md](FR
 | Route | User turn | Companion turn |
 | --- | --- | --- |
 | `chatgpt`, `ollama` | `Human: …\n` | bare reply text, no prefix |
-| `llama3-8b`, `llama3-70b` | `### Human: …\n` | `### <Name>: …` |
-| seeded turns (from character file) | `Human: …` | `<Name>: …` |
+| `llama3-8b` | `### Human: …\n` | `### <Name>: …` |
+| `llama3-70b` | `User: …\n` | `<Name>: …` |
+| seeded turns (from character file) | `Human: …`, `User: …` or `### Human:` on its own line, and turns not reliably one entry each | `<Name>: …` |
 
 Nothing can render this reliably without a normalisation step, and the divergence exists only because the conversation pipeline is copy-pasted per model route with no shared write path. **Unifying the entry format is therefore the first work item, not a detail of the read path.**
 
@@ -24,8 +25,8 @@ Nothing can render this reliably without a normalisation step, and the divergenc
 
 Four phases, in order. Each is independently shippable.
 
-- [ ] **Phase 0** — Framework upgrade
-- [ ] **Phase 1** — Unified chat-entry storage
+- [x] **Phase 0** — Framework upgrade
+- [x] **Phase 1** — Unified chat-entry storage
 - [ ] **Phase 2** — Server-side read path
 - [ ] **Phase 3** — History UI
 
@@ -73,15 +74,20 @@ Confirm each item against the official migration guides during the work rather t
 
 Fix the cause, not the symptom: one write path, one format, shared by every model route.
 
-- [ ] Define the entry format in one place — `src/app/utils/transcript.ts`:
+- [x] Define the entry format in one place — [transcript.ts](../src/app/utils/transcript.ts):
   - `type Turn = { speaker: "user" | "companion"; text: string; at?: number }`
-  - `formatEntry(turn, companionName): string` — the single writer of the on-the-wire prefix
-  - `parseEntry(raw, companionName): Turn` — tolerant reader: strips an optional `### `, maps `Human:` → user, `<Name>:` → companion, no prefix → companion, trims trailing newline
-  - `parseTranscript(entries, companionName): Turn[]`
+  - `formatEntry(turn, companionName): string` — the single writer of the on-the-wire prefix. Canonical format is `Human: …` / `<Name>: …`, no trailing newline.
+  - `parseEntry(raw, companionName): Turn` — tolerant reader: strips an optional `### `, maps `Human:`/`User:` → user, `<Name>:` → companion, no prefix → companion, tolerates a label on its own line, trims trailing newline
+  - `parseTranscript(entries, companionName, scores?): Turn[]` — drops entries that are empty after their label, and carries the sorted-set score into `Turn.at` when the caller read scores (Phase 2 needs that).
+  - `parseTranscriptText(text, companionName): Turn[]` — splits a character file's seed chat into turns *by label* rather than by delimiter; see the seeding note below.
+  - `stripSpeakerPrefix(text, companionName)` — replaces the three hand-rolled copies of "drop a leading `Name:`" that had accumulated in the routes.
   - Pure and dependency-free — the one part of this feature that is trivially testable.
-- [ ] Route the writes through it: `MemoryManager.writeToHistory` gains a turn-aware wrapper (or the routes call `formatEntry`). Every route stops hand-building `"Human: " + prompt` and `"### " + name + ": "`.
-- [ ] **Do not change what the model sees.** The prompt is still built from the joined string; if a route's model needs `###` markers, that stays a prompt-assembly concern, not a storage concern. Verify each backend still answers in character after the change.
-- [ ] Existing Redis data keeps the old formats. `parseEntry` must handle all three variants above indefinitely — there is no migration and no way to run one without a user-data script.
+- [x] Route the writes through it: `MemoryManager.writeTurn(turn, companionKey)` formats and appends; `writeToHistory` stays as the raw append. Every route stops hand-building `"Human: " + prompt`, `"### " + name + ": "`, `"User: "`.
+- [x] **Do not change what the model sees.** The prompt is still built from the joined string, and no route re-adds `###` markers: `meta-llama-3-*-instruct` applies its own chat template and `llama3-70b` was already prompting without them. Verified live against all four backends (`chatgpt`/Alex, `ollama`/Ruffy, `llama3-8b`/Rosie, `llama3-70b`/Evelyn) — each answered in character, and the joined transcript is character-identical to the old one apart from the labels themselves.
+- [x] Existing Redis data keeps the old formats. `parseEntry` handles every variant above indefinitely — there is no migration and no way to run one without a user-data script.
+- [x] Seeding normalises too, so a *new* user's history is canonical from the first turn. `seedChatHistory` lost its `delimiter` parameter: splitting on `"\n\n"` merged a user turn and the reply to it into one entry for three of the five character files, which would have rendered as one lopsided turn in Phase 3.
+
+`chatgpt` gained the "do not begin your reply with your own name" instruction the other routes already carried, because labelling companion turns in the stored transcript gives the model one more reason to imitate the label. Every route also strips such a label defensively before storing — which `ollama`'s local model needed on the first live run.
 
 **Note on scope:** this phase touches all four model routes because the pipeline is duplicated four times. Extracting the whole pipeline into a shared module is the correct fix and is explicitly **out of scope** — see future items.
 
