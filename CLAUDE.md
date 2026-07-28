@@ -72,6 +72,41 @@ Clerk `authMiddleware` gates all pages; [middleware.ts](src/middleware.ts#L7) ma
 
 `rateLimit(identifier)` ([rateLimit.ts](src/app/utils/rateLimit.ts)) is an Upstash sliding window of 10 requests / 10s, keyed on request URL + user id.
 
+## Code documentation
+
+Every exported symbol — and every non-exported function long enough that its purpose isn't obvious at a glance (roughly 15+ lines or more than one branch of real logic) — carries a JSDoc block. When you add or substantially change such a function, write or update its block in the same edit.
+
+Use standard TypeScript-flavoured JSDoc: `/** ... */` immediately above the declaration, no type annotations in the tags (`@param name - description`, not `@param {string} name`) since TypeScript already has the types. Use `@param` only where the name alone doesn't explain the argument, `@returns` only where the return isn't self-evident, and `@throws` wherever a caller has to handle a failure.
+
+**Document why, not what.** The block should say what problem the function solves, what it assumes about its callers or its environment, and anything surprising about its behaviour — non-obvious failure modes, silent fallbacks, external state it touches, ordering or sync constraints. Do not narrate the implementation line by line; the code already does that, and a recital goes stale the moment the body changes. Keep it to a couple of sentences.
+
+For this repo that usually means naming the environment variable that switches behaviour, the Redis/vector key it reads or writes, or the invariant that has to hold elsewhere (see the `EMBEDDING_MODEL` note in [memory.ts](src/app/utils/memory.ts)).
+
+```ts
+/**
+ * Retrieves backstory passages relevant to the current conversation.
+ *
+ * Backend is chosen by `VECTOR_DB` at call time, and results are filtered by
+ * `fileName` metadata so companions never surface each other's backstories.
+ * Failures are logged and swallowed: callers get `undefined` and are expected
+ * to prompt with empty context rather than fail the request.
+ *
+ * @param companionFileName - the `companions/<Name>.txt` this search is scoped to
+ */
+```
+
+Not this — it restates the body and tells a reader nothing they couldn't see:
+
+```ts
+/**
+ * Checks if the client is Pinecone, and if so creates a PineconeStore from the
+ * existing index, then calls similaritySearch with k=3. Otherwise calls the
+ * Supabase RPC and maps the rows.
+ */
+```
+
+Comments inside a function body are for the same purpose: reserve them for decisions a reader would otherwise second-guess (why `PromptTemplate` is avoided, why the Supabase client is typed `any`), not for labelling the steps.
+
 ## Known rough edges (documented in README, don't treat as bugs to fix silently)
 
 - The UI shows only the current exchange; history is not rendered.
