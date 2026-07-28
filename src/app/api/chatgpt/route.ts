@@ -5,6 +5,7 @@ import { clerkClient, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import MemoryManager from "@/app/utils/memory";
 import { rateLimit } from "@/app/utils/rateLimit";
+import { stripSpeakerPrefix } from "@/app/utils/transcript";
 
 dotenv.config({ path: `.env.local` });
 
@@ -87,10 +88,10 @@ export async function POST(req: Request) {
 
   const records = await memoryManager.readLatestHistory(companionKey);
   if (records.length === 0) {
-    await memoryManager.seedChatHistory(seedchat, "\n\n", companionKey);
+    await memoryManager.seedChatHistory(seedchat, companionKey);
   }
 
-  await memoryManager.writeToHistory("Human: " + prompt + "\n", companionKey);
+  await memoryManager.writeTurn({ speaker: "user", text: prompt }, companionKey);
   let recentChatHistory = await memoryManager.readLatestHistory(companionKey);
 
   // query the vector db
@@ -123,7 +124,7 @@ export async function POST(req: Request) {
 
     ${preamble}
 
-  You reply with answers that range from one sentence to one paragraph and with some details. ${replyWithTwilioLimit}
+  You reply with answers that range from one sentence to one paragraph and with some details. Reply only as ${name}, in the first person, and do not begin your reply with your own name or a "${name}:" label. ${replyWithTwilioLimit}
 
   Below are relevant details about ${name}'s past
   ${relevantHistory}
@@ -135,9 +136,14 @@ export async function POST(req: Request) {
   // Twilio needs the whole reply as JSON, so there is nothing to stream.
   if (isText) {
     const result = await model.invoke(chainPrompt);
-    const text =
-      typeof result.content === "string" ? result.content : String(result.content);
-    await memoryManager.writeToHistory(text + "\n", companionKey);
+    const text = stripSpeakerPrefix(
+      typeof result.content === "string" ? result.content : String(result.content),
+      name!
+    );
+    await memoryManager.writeTurn(
+      { speaker: "companion", text },
+      companionKey
+    );
     return NextResponse.json(text);
   }
 
@@ -155,8 +161,11 @@ export async function POST(req: Request) {
             controller.enqueue(token);
           }
         }
-        await memoryManager.writeToHistory(
-          fullResponse + "\n",
+        // Streamed tokens go out as they arrive, so a self-label the model
+        // slipped in is only stripped from the stored copy -- the prompt above
+        // tells it not to emit one in the first place.
+        await memoryManager.writeTurn(
+          { speaker: "companion", text: stripSpeakerPrefix(fullResponse, name!) },
           companionKey
         );
         controller.close();
