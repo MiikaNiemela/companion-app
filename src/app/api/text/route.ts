@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import twilio from "twilio";
-import clerk from "@clerk/nextjs/server";
+import { clerkClient } from "@clerk/nextjs/server";
 import dotenv from "dotenv";
 import ConfigManager from "@/app/utils/config";
 import { rateLimit } from "@/app/utils/rateLimit";
@@ -37,7 +37,10 @@ export async function POST(request: Request) {
   }
 
   // check if the user has verified phone #
-  const users = await clerk.users.getUserList({ phoneNumber });
+  const clerk = await clerkClient();
+  const { data: users } = await clerk.users.getUserList({
+    phoneNumber: [phoneNumber],
+  });
 
   if (!users || users.length == 0) {
     return new NextResponse(

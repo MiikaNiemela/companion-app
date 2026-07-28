@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import { createTextStreamResponse } from "ai";
 import Replicate from "replicate";
 import MemoryManager from "@/app/utils/memory";
-import clerk, { currentUser } from "@clerk/nextjs/server";
+import { clerkClient, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { rateLimit } from "@/app/utils/rateLimit";
 
@@ -47,7 +47,11 @@ export async function POST(request: Request) {
     clerkUserName = user?.firstName;
   }
 
-  if (!clerkUserId || !!!(await clerk.users.getUser(clerkUserId))) {
+  // getUser rejects for an unknown id, so map that to the 401 below.
+  const clerkUser = clerkUserId
+    ? await (await clerkClient()).users.getUser(clerkUserId).catch(() => null)
+    : null;
+  if (!clerkUser) {
     return new NextResponse(
       JSON.stringify({ Message: "User not authorized" }),
       {
