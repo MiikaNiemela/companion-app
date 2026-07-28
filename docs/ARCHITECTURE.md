@@ -252,16 +252,16 @@ This is a demo-grade codebase. The list below maps the places where the implemen
 
 ### Trust boundaries
 
-- **The API surface is deliberately unauthenticated at the edge.** Middleware gates pages but marks `/api(.*)` public ([middleware.ts:7](src/middleware.ts#L7), with an in-code TODO). Every model route therefore re-implements its own auth. The consequence is not just duplication: the gate and the checks can drift independently, and a new route that forgets the check is publicly open with no signal.
-- **The SMS bypass is an authorization hole.** A model route accepts `isText: true` plus a caller-supplied `userId` and trusts it, verifying only that such a user *exists* — not that the caller is that user ([chatgpt/route.ts:42-51](src/app/api/chatgpt/route.ts#L42-L51), same in every route). Combined with the public API surface, anyone who learns a user id can converse as them and write into their history. The check reads like authentication but performs none.
-- **The Twilio webhook is unauthenticated.** [/api/text](src/app/api/text/route.ts) never validates the Twilio request signature, so the `From`/`To` fields — the sole basis for identifying both the user and the companion — are attacker-controlled. This is the entry point that mints the trusted `userId` above.
-- **Rate limiting is per-route, not per-user.** The key is request URL + user id ([rateLimit.ts:12](src/app/utils/rateLimit.ts#L12)), giving each caller an independent budget on every model backend and on the SMS webhook. Whether that is intended or a side effect of using the URL as a convenient unique string is not recorded.
+- **The API surface is deliberately unauthenticated at the edge.** Middleware gates pages but marks `/api(.*)` public ([middleware.ts:7](../src/middleware.ts#L7), with an in-code TODO). Every model route therefore re-implements its own auth. The consequence is not just duplication: the gate and the checks can drift independently, and a new route that forgets the check is publicly open with no signal.
+- **The SMS bypass is an authorization hole.** A model route accepts `isText: true` plus a caller-supplied `userId` and trusts it, verifying only that such a user *exists* — not that the caller is that user ([chatgpt/route.ts:42-51](../src/app/api/chatgpt/route.ts#L42-L51), same in every route). Combined with the public API surface, anyone who learns a user id can converse as them and write into their history. The check reads like authentication but performs none.
+- **The Twilio webhook is unauthenticated.** [/api/text](../src/app/api/text/route.ts) never validates the Twilio request signature, so the `From`/`To` fields — the sole basis for identifying both the user and the companion — are attacker-controlled. This is the entry point that mints the trusted `userId` above.
+- **Rate limiting is per-route, not per-user.** The key is request URL + user id ([rateLimit.ts:12](../src/app/utils/rateLimit.ts#L12)), giving each caller an independent budget on every model backend and on the SMS webhook. Whether that is intended or a side effect of using the URL as a convenient unique string is not recorded.
 
 ### Duplication and coupling
 
 - **The conversation pipeline exists once per backend, by copy-paste.** The four model routes are near-identical ~250-line files differing only in the model call. Any change to auth, memory, prompt shape, or error handling has to be made four times. The "adding a backend is just adding a route" property is real, but its cost is that the route *is* the pipeline.
 - **Dispatch is by string convention across three places.** A companion's `llm` field, the route folder name, and the `modelName` literal inside the route must all agree. Nothing validates this. The `modelName` is also part of the Redis history key, so a rename silently orphans every existing conversation instead of failing.
-- **The embedding model is a hand-synced constant.** [memory.ts](src/app/utils/memory.ts#L11) and both indexing scripts must name the same model. A mismatch does not error — it returns meaningless nearest neighbours. The coupling is commented but not enforced.
+- **The embedding model is a hand-synced constant.** [memory.ts](../src/app/utils/memory.ts#L11) and both indexing scripts must name the same model. A mismatch does not error — it returns meaningless nearest neighbours. The coupling is commented but not enforced.
 - **Prompts are assembled by string concatenation** from character files, retrieved backstory, and user input, with per-route stop-token workarounds compensating for weaker models. There is no separation between instruction and untrusted content.
 
 ### Data lifecycle
@@ -273,13 +273,13 @@ This is a demo-grade codebase. The list below maps the places where the implemen
 ### Configuration and failure behaviour
 
 - **Config is read ad hoc, not validated at startup.** Each route and script calls `dotenv.config()` itself and reaches into `process.env` with non-null assertions. Missing configuration surfaces as a runtime throw deep inside a request rather than a refusal to boot.
-- **Optional dependencies fail like required ones.** Vector search degrades gracefully when a *query* fails, but the vector-DB client is constructed eagerly in the memory singleton's constructor ([memory.ts:37-55](src/app/utils/memory.ts#L37-L55)), so absent config throws before the graceful path can apply. The intended optionality is defeated by construction order.
+- **Optional dependencies fail like required ones.** Vector search degrades gracefully when a *query* fails, but the vector-DB client is constructed eagerly in the memory singleton's constructor ([memory.ts:37-55](../src/app/utils/memory.ts#L37-L55)), so absent config throws before the graceful path can apply. The intended optionality is defeated by construction order.
 - **Errors are logged, not reported.** Failures are caught and `console.log`ged throughout; the user sees a hang or an empty reply. There is no structured logging, error tracking, or health signal — which is why the README notes that backends "fail silently, especially when deployed".
 - **Per-request client construction.** `rateLimit` builds a new Redis client and limiter on every call rather than reusing one.
 
 ### Runtime assumptions
 
-- **Character files are read from disk on every request, relative to the process CWD** ([config.ts:9](src/app/utils/config.ts#L9), and each route). Nothing is cached, and the app only works if `companions/` ships next to the build with the CWD set correctly — an assumption that holds for the container image and breaks on most serverless targets.
+- **Character files are read from disk on every request, relative to the process CWD** ([config.ts:9](../src/app/utils/config.ts#L9), and each route). Nothing is cached, and the app only works if `companions/` ships next to the build with the CWD set correctly — an assumption that holds for the container image and breaks on most serverless targets.
 - **One backend cannot run where the app is deployed.** The Ollama route targets a model on the developer's machine, so a companion using it is functional locally and broken in the cloud, with no representation of that in the companion registry.
 
 ### Unfinished surface
