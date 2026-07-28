@@ -33,16 +33,35 @@ Four phases, in order. Each is independently shippable.
 
 ### Phase 0 — Framework upgrade (do first)
 
-Rationale: any API-surface change is cheaper to make once, on the target version. The codebase is small, so upgrading now means less code to migrate than after the feature lands. Next.js 13 → current major, with the dependency chain it drags along.
+Rationale: any API-surface change is cheaper to make once, on the target version. The codebase is small, so upgrading now means less code to migrate than after the feature lands.
 
-- [ ] Next.js 13.5 → current major; React 18 → the version it requires
-- [ ] `@clerk/nextjs` 4.x → current. Clerk v4 does not support post-14 Next.js, and `authMiddleware` is superseded by `clerkMiddleware` + `createRouteMatcher` — [middleware.ts](../src/middleware.ts) must be rewritten. Treat this as the highest-risk item: it is the app's only page-level gate.
-- [ ] `ai` (Vercel AI SDK) 2.x → current. The React hooks moved to a separate `@ai-sdk/react` package and `StreamingTextResponse` was removed in favour of the newer stream-response helpers — affects [QAModal.tsx](../src/components/QAModal.tsx) and every model route.
-- [ ] Async request APIs: `headers()`, `cookies()`, `params`, `searchParams` became async — all model routes read the companion name from a header.
-- [ ] `experimental.serverActions` in [next.config.js](../next.config.js) is no longer experimental; drop the flag.
-- [ ] Re-run `next lint` (config may need migrating to flat ESLint) and a full manual pass: sign-in, gallery, one chat per backend.
+**Version policy:** core runtimes are pinned by major and taken to their latest release within it — **Node 24.x** and **React 18.x** (18.3.x). The React 18 pin sets the framework ceiling: the Next.js App Router requires React 19 from v15 onward, so the target is the **latest Next 14** (14.2.x), not the current major. Moving past it is a separate, future React 19 upgrade.
 
-Confirm each item against the official migration guides during the work rather than trusting this list — it is a scope sketch, not a verified changelog. Every version-specific claim here needs checking.
+Target versions:
+
+| Package | Current | Target |
+| --- | --- | --- |
+| Node (Dockerfile `NODE_VERSION`) | 18.8.0 | 24.x (latest LTS patch) |
+| `react`, `react-dom` | 18.2.0 | 18.3.x (latest 18) |
+| `next` | ^13.5.11 | 14.2.x (latest 14; must be ≥ 14.2.25 for Clerk v6's peer range) |
+| `eslint-config-next` | ^13.5.11 | 14.2.x (match `next`) |
+| `@clerk/nextjs` | ^4.21.9-snapshot | 6.x (latest) |
+| `@clerk/clerk-sdk-node` | ^4.10.12 | **remove** — deprecated; replaced by `clerkClient` from `@clerk/nextjs/server` |
+| `ai` (Vercel AI SDK) | ^2.1.3 | 5.x (latest) |
+| `@ai-sdk/react` | — | add (2.x, ships with AI SDK 5; supports React ^18) |
+| `@types/node` | 20.2.5 | 24.x |
+| `@types/react`, `@types/react-dom` | 18.2.x | latest 18 |
+
+- [ ] Node 18.8.0 → 24.x: bump the Dockerfile `NODE_VERSION` ARG and `@types/node`; add an `engines` field so the local/dev version can't silently drift from the image.
+- [ ] Next.js 13.5 → 14.2.x; React 18.2.0 → 18.3.x. Stays within both pinned majors; App Router APIs are stable across 13 → 14.
+- [ ] `@clerk/nextjs` 4.x → 6.x. `authMiddleware` is superseded by `clerkMiddleware` + `createRouteMatcher` — [middleware.ts](../src/middleware.ts) must be rewritten. Treat this as the highest-risk item: it is the app's only page-level gate. Also removes `@clerk/clerk-sdk-node` (imported by [text/route.ts](../src/app/api/text/route.ts) and all four model routes for the phone-number lookup) in favour of `clerkClient` from `@clerk/nextjs/server`.
+- [ ] `ai` 2.x → 5.x. The React hooks moved to the separate `@ai-sdk/react` package and `StreamingTextResponse` was removed in favour of the newer stream-response helpers — affects [QAModal.tsx](../src/components/QAModal.tsx) and every model route.
+- [ ] `experimental.serverActions` in [next.config.js](../next.config.js) is stable in Next 14; drop the flag.
+- [ ] Re-run `next lint` and a full manual pass: sign-in, gallery, one chat per backend. (`eslint-config-next` 14 still uses `.eslintrc` — the flat-config migration only becomes forced at Next 15 / ESLint 9, i.e. not in this phase.)
+
+Not in this phase, because it is a Next 15 change and the target is 14: the async request APIs (`headers()`, `cookies()`, `params`, `searchParams` becoming async). It moves to the future React 19 / Next 15+ item below.
+
+Confirm each item against the official migration guides during the work rather than trusting this list — it is a scope sketch, not a verified changelog. Every version-specific claim here needs checking, and "latest within the major" means latest at execution time, not the patch numbers current when this was written.
 
 **Exit criterion:** the app behaves exactly as before on the new stack. No feature work in this phase.
 
@@ -103,3 +122,4 @@ Recorded here so the decisions are visible; none are in scope for this work.
 - **Sorted-set semantics corrupt the transcript.** History is a Redis *sorted set*, so two identical entries collapse into one member and the repeat merely re-scores the original — silently moving that turn to the end of the conversation. Invisible while prompting, obvious once rendered. The whole store/retrieve design (list vs. set, entry schema, retention, deletion) wants rewriting; not now.
 - **Shared conversation pipeline.** The four model routes are near-identical ~250-line copies. Phase 1 unifies only the write format; auth, rate limiting, memory access, prompt assembly, and error handling remain duplicated per route.
 - **History lifecycle.** No expiry, no cap, no delete or export path — see the concerns chapter in [ARCHITECTURE.md](ARCHITECTURE.md).
+- **React 19 / Next 15+ upgrade.** Phase 0 deliberately stops at Next 14.2 because React is pinned to major 18 and the App Router requires React 19 from Next 15 onward. Lifting the pin unlocks the current Next major and brings the async request APIs (`headers()`, `cookies()`, `params`, `searchParams`), the forced ESLint flat-config migration, and a re-check of the Clerk and AI SDK peer ranges.
