@@ -9,8 +9,10 @@ import { rateLimit } from "@/app/utils/rateLimit";
 
 dotenv.config({ path: `.env.local` });
 
-const REPLICATE_MODEL =
-  "replicate/vicuna-13b:6282abe6a492de4145d7bb601023762212f9ddbbe78278bd6771c8b3b2f2a13b" as const;
+// Public, Meta-maintained instruct model on Replicate -- nothing to host. The
+// owner/model form (no version) always resolves to the latest published
+// version of an official model.
+const REPLICATE_MODEL = "meta/meta-llama-3-8b-instruct" as const;
 
 export async function POST(request: Request) {
   const { prompt, isText, userId, userName } = await request.json();
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
   const companionKey = {
     companionName: name!,
     userId: clerkUserId!,
-    modelName: "vicuna13b",
+    modelName: "llama3-8b",
   };
   const memoryManager = await MemoryManager.getInstance();
 
@@ -114,17 +116,17 @@ export async function POST(request: Request) {
   const output = await replicate
     .run(REPLICATE_MODEL, {
       input: {
-        prompt: `${preamble}
+        // Persona and retrieved backstory go in the system prompt; the running
+        // transcript is the user turn. Llama 3 applies its own chat template.
+        system_prompt: `You are ${name}. ${preamble}
 
-       Below are relevant details about ${name}'s past:
-       ${relevantHistory}
+Below are relevant details about ${name}'s past:
+${relevantHistory}
 
-       Below is a relevant conversation history
-
-       ${recentChatHistory}
-       ### ${name}:
-       `,
-        max_length: 2048,
+Stay in character as ${name}. Reply with one sentence to one paragraph. Do not prefix your reply with your name.`,
+        prompt: recentChatHistory,
+        max_tokens: 512,
+        temperature: 0.75,
       },
     })
     .catch((err) => {
@@ -132,18 +134,20 @@ export async function POST(request: Request) {
       return "";
     });
 
-  // Replicate returns LLM output as an array of token strings.
-  const resp = Array.isArray(output) ? output.join("") : String(output ?? "");
+  // meta-llama-3 instruct returns output as an array of token strings, already
+  // clean prose -- no ### markers, so none of the old munging is needed.
+  let response = (Array.isArray(output) ? output.join("") : String(output ?? "")).trim();
+  // Defensively drop a leading "Name:" if the model adds one anyway.
+  const namePrefix = `${name}:`;
+  if (response.toLowerCase().startsWith(namePrefix.toLowerCase())) {
+    response = response.slice(namePrefix.length).trim();
+  }
 
-  // Right now just using super shoddy string manip logic to get at
-  // the dialog.
-
-  const cleaned = resp.replaceAll(",", "");
-  const chunks = cleaned.split("###");
-  const response = chunks[0];
-
-  if (response !== undefined && response.length > 1) {
-    await memoryManager.writeToHistory("### " + response.trim(), companionKey);
+  if (response.length > 1) {
+    await memoryManager.writeToHistory(
+      "### " + name + ": " + response,
+      companionKey
+    );
   }
 
   const encoder = new TextEncoder();

@@ -9,8 +9,10 @@ import { rateLimit } from "@/app/utils/rateLimit";
 
 dotenv.config({ path: `.env.local` });
 
-const REPLICATE_MODEL =
-  "a16z-infra/llama13b-v2-chat:df7690f1994d94e96ad9d568eac121aecf50684a0b0963b25a41cc40061269e5" as const;
+// Public, Meta-maintained instruct model on Replicate -- nothing to host. The
+// owner/model form (no version) always resolves to the latest published
+// version of an official model. 70B for noticeably stronger replies than 8B.
+const REPLICATE_MODEL = "meta/meta-llama-3-70b-instruct" as const;
 
 export async function POST(request: Request) {
   const { prompt, isText, userId, userName } = await request.json();
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
   const companionKey = {
     companionName: name!,
     userId: clerkUserId!,
-    modelName: "llama2-13b",
+    modelName: "llama3-70b",
   };
   const memoryManager = await MemoryManager.getInstance();
 
@@ -110,18 +112,17 @@ export async function POST(request: Request) {
   const output = await replicate
     .run(REPLICATE_MODEL, {
       input: {
-        prompt: `
-       ONLY generate NO more than three sentences as ${name}. DO NOT generate more than three sentences.
-       Make sure the output you generate starts with '${name}:' and ends with a period.
+        // Persona and retrieved backstory go in the system prompt; the running
+        // transcript is the user turn. Llama 3 applies its own chat template.
+        system_prompt: `You are ${name}. ${preamble}
 
-       ${preamble}
+Below are relevant details about ${name}'s past:
+${relevantHistory}
 
-       Below are relevant details about ${name}'s past and the conversation you are in.
-       ${relevantHistory}
-
-
-       ${recentChatHistory}\n${name}:`,
-        max_length: 2048,
+Stay in character as ${name}. Reply with no more than three sentences. Do not prefix your reply with your name.`,
+        prompt: recentChatHistory,
+        max_tokens: 512,
+        temperature: 0.75,
       },
     })
     .catch((err) => {
@@ -129,19 +130,17 @@ export async function POST(request: Request) {
       return "";
     });
 
-  // Replicate returns LLM output as an array of token strings.
-  let resp = Array.isArray(output) ? output.join("") : String(output ?? "");
+  // meta-llama-3 instruct returns output as an array of token strings, already
+  // clean prose -- no per-line munging needed.
+  let response = (Array.isArray(output) ? output.join("") : String(output ?? "")).trim();
+  // Defensively drop a leading "Name:" if the model adds one anyway.
+  const namePrefix = `${name}:`;
+  if (response.toLowerCase().startsWith(namePrefix.toLowerCase())) {
+    response = response.slice(namePrefix.length).trim();
+  }
 
-  // Right now just using super shoddy string manip logic to get at
-  // the dialog.
-
-  const cleaned = resp.replaceAll(",", "");
-  const chunks = cleaned.split("\n");
-  const response = chunks[0];
-  // const response = chunks.length > 1 ? chunks[0] : chunks[0];
-
-  if (response !== undefined && response.length > 1) {
-    await memoryManager.writeToHistory("" + response.trim(), companionKey);
+  if (response.length > 1) {
+    await memoryManager.writeToHistory(name + ": " + response, companionKey);
   }
 
   const encoder = new TextEncoder();

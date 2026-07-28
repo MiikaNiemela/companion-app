@@ -6,14 +6,13 @@
 
 <img width="1182" alt="Screen Shot 2023-07-10 at 11 27 03 PM" src="https://github.com/a16z-infra/companion-app/assets/3489963/e4cc8042-e091-4c8b-851f-e361ca5b5814">
 
+This is a tutorial stack to create and host AI companions that you can chat with on a browser or text via SMS. It allows you to determine the personality and backstory of your companion, and uses a vector database with similarity search to retrieve and prompt so the conversations have more depth. It also provides some conversational memory by keeping the conversation in a queue and including it in the prompt.
 
-This is a tutorial stack to create and host AI companions that you can chat with on a browser or text via SMS. It allows you to determine the personality and backstory of your companion, and uses a vector database with similarity search to retrieve and prompt so the conversations have more depth. It also provides some conversational memory by keeping the conversation in a queue and including it in the prompt. 
-
-It currently contains companions on both ChatGPT and Vicuna hosted on [Replicate](https://replicate.com/). 
+It currently contains companions on both ChatGPT hosted on [OpenAI](https://platform.openai.com/) and `llama3` hosted on [Replicate](https://replicate.com/)
 
 There are many possible use cases for these companions - romantic (AI girlfriends / boyfriends), friendship, entertainment, coaching, etc. You can guide your companion towards your ideal use case with the backstory you write and the model you choose.
 
-**Note** This project is purely intended to be a developer tutorial and starter stack for those curious on how chatbots are built. If you're interested in what a production open source platform looks like, check out [Steamship](https://www.steamship.com/). Or what the leading AI chat platforms look like, check out [Character.ai](https://beta.character.ai/).
+**Note** This project is purely intended to be a developer tutorial and starter stack for those curious on how chatbots are built. If you're interested in what a production open-source chat platform looks like, check out [LibreChat](https://github.com/danny-avila/LibreChat). Or what the leading commercial AI chat platforms look like, check out [Character.ai](https://beta.character.ai/).
 
 ## Overview
 
@@ -33,7 +32,11 @@ The stack is based on the [AI Getting Started Stack](https://github.com/a16z-inf
 - App logic: [Next.js](https://nextjs.org/)
 - VectorDB: [Pinecone](https://www.pinecone.io/) / [Supabase pgvector](https://supabase.com/docs/guides/database/extensions/pgvector)
 - LLM orchestration: [Langchain.js](https://js.langchain.com/docs/)
-- Text model: [OpenAI](https://platform.openai.com/docs/models), [Replicate (Vicuna13b)](https://replicate.com/replicate/vicuna-13b)
+- Text models:
+  - [OpenAI (gpt-4o-mini)](https://platform.openai.com/docs/models)
+  - [Replicate (meta-llama-3-8b)](https://replicate.com/meta/meta-llama-3-8b-instruct)
+  - [Replicate (meta-llama-3-70b)](https://replicate.com/meta/meta-llama-3-70b-instruct)
+  - [ollama localhost (dolphin-mistral:7b)](https://ollama.com/library/dolphin-mistral)
 - Text streaming: [ai sdk](https://github.com/vercel-labs/ai)
 - Conversation history: [Upstash](https://upstash.com/)
 - Deployment: [Fly](https://fly.io/)
@@ -43,32 +46,32 @@ The stack is based on the [AI Getting Started Stack](https://github.com/a16z-inf
 
 The following instructions should get you up and running with a fully
 functional, local deployment of four AIs to chat with. Note that the companions
-running on Vicuna (Rosie and Lucky) will take more time to respond as we've not
+running on Replicate hosted models (Rosie and Evelyn) will take more time to respond as we've not
 dealt with the cold start problem. So you may have to wait around a bit :)
 
 ### 1. Fork and Clone repo
 
 Fork the repo to your Github account, then run the following command to clone the repo:
 
-```
+```bash
 git clone git@github.com:[YOUR_GITHUB_ACCOUNT_NAME]/companion-app.git
 ```
 
 **Alternatively**, you can launch the app quickly through Github Codespaces by clicking on "Code" -> "Codespaces" -> "+"
 <img width="458" alt="Screen Shot 2023-07-10 at 11 04 04 PM" src="https://github.com/a16z-infra/companion-app/assets/3489963/eb954517-29f2-44b7-b9ca-4184dcf42806">
 
-If you choose to use Codespaces, npm dependencies will be installed automatically and you can proceed to step 3. 
+If you choose to use Codespaces, npm dependencies will be installed automatically and you can proceed to step 3.
 
 ### 2. Install dependencies
 
-```
+```bash
 cd companion-app
 npm install
 ```
 
 ### 3. Fill out secrets
 
-```
+```bash
 cp .env.local.example .env.local
 ```
 
@@ -76,7 +79,7 @@ Secrets mentioned below will need to be copied to `.env.local`
 
 a. **Clerk Secrets**
 
-Go to https://dashboard.clerk.com/ -> "Add Application" -> Fill in Application name/select how your users should sign in -> Create Application
+Go to <https://dashboard.clerk.com/> -> "Add Application" -> Fill in Application name/select how your users should sign in -> Create Application
 Now you should see both `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` on the screen
 <img width="1398" alt="Screen Shot 2023-07-10 at 11 04 57 PM" src="https://github.com/a16z-infra/companion-app/assets/3489963/449c40f1-2fc2-48bb-88e1-d2adf10a034e">
 
@@ -84,21 +87,19 @@ If you want to text your AI companion in later steps, you should also enable "ph
 
 <img width="1013" alt="Screen Shot 2023-07-10 at 11 05 42 PM" src="https://github.com/a16z-infra/companion-app/assets/3489963/4435c759-f33e-4e38-a276-1be6d538df28">
 
-
 b. **OpenAI API key**
 
-Visit https://platform.openai.com/account/api-keys to get your OpenAI API key if you're using OpenAI for your language model.
+Visit <https://platform.openai.com/account/api-keys> to get your OpenAI API key if you're using OpenAI for your language model.
 
 c. **Replicate API key**
 
-Visit https://replicate.com/account/api-tokens to get your Replicate API key if you're using Vicuna for your language model.
+Visit <https://replicate.com/account/api-tokens> to get your Replicate API key if you're using `llama3-8b` or `llama3-70b` for your language model.
 
-
-❗ **_NOTE:_** By default, this template uses Pinecone as vector store, but you can turn on Supabase pgvector easily by uncommenting `VECTOR_DB=supabase` in `.env.local`. This means you only need to fill out either Pinecone API key _or_ Supabase API key.
+**_NOTE:_** By default, this template uses Pinecone as vector store, but you can turn on Supabase pgvector easily by uncommenting `VECTOR_DB=supabase` in `.env.local`. This means you only need to fill out either Pinecone API key _or_ Supabase API key.
 
 d. **Pinecone API key**
 
-- Create a Pinecone index by visiting https://app.pinecone.io/ and click on "Create Index"
+- Create a Pinecone index by visiting <https://app.pinecone.io/> and click on "Create Index"
 - Give it an index name (this will be the environment variable `PINECONE_INDEX`)
 - Fill in Dimension as `1536`
 - Once the index is successfully created, click on "API Keys" on the left side nav and create an API key: copy its value to `PINECONE_API_KEY`
@@ -118,7 +119,6 @@ e. **Upstash API key**
 - Scroll down to "REST API" section and click on ".env". Now you can copy paste both environment variables to your `.env.local`
 <img width="866" alt="Screen Shot 2023-07-10 at 11 07 21 PM" src="https://github.com/a16z-infra/companion-app/assets/3489963/f8e6c43f-8810-423e-86b4-9e8aa70598c9">
 
-
 f. **Supabase API key** (optional)
 If you prefer to use Supabase, you will need to uncomment `VECTOR_DB=supabase` and fill out the Supabase credentials in `.env.local`.
 
@@ -127,15 +127,14 @@ If you prefer to use Supabase, you will need to uncomment `VECTOR_DB=supabase` a
 - `SUPABASE_PRIVATE_KEY` is the key starts with `ey` under Project API Keys
 - Now, you should enable pgvector on Supabase and create a schema. You can do this easily by clicking on "SQL editor" on the left hand side on Supabase UI and then clicking on "+New Query". Copy paste [this code snippet](https://github.com/a16z-infra/ai-getting-started/blob/main/pgvector.sql) in the SQL editor and click "Run".
 
-g. **Steamship API key**
+g. **Ollama (local models)**
 
-You can connect a Steamship agent instance as an LLM with personality, voice and image generation capabilities built in. It also includes its own vector storage and tools. To do so:
+You can run a companion against a model hosted **locally** with [Ollama](https://ollama.com) — no API key, and nothing leaves your machine. To do so:
 
-- Create an account on [Steamship](https://steamship.com/account)
-- Copy the API key from your account settings page
-- Add it as the `STEAMSHIP_API_KEY` variable 
-
-If you'd like to create your own character personality, add a custom voice, or use a different image model, visit [Steamship Agent Guidebook](https://www.steamship.com/learn/agent-guidebook), create your own instance and connect it in `companions.json` using the *Rick* example as a guide.
+- Install Ollama and start it: `ollama serve`
+- Pull a model — the shipped `Ruffy` companion uses `ollama pull dolphin-mistral:7b` (an uncensored, instruction-tuned model); any pulled model works, e.g. `ollama pull llama3.2`
+- Set `OLLAMA_BASE_URL` and `OLLAMA_MODEL` in `.env.local` (both are required — e.g. `http://localhost:11434` and `dolphin-mistral:7b`)
+- Set a companion's `"llm"` to `"ollama"` in `companions.json` (the `Ruffy` companion ships this way)
 
 ### 4. Generate embeddings
 
@@ -157,7 +156,7 @@ npm run generate-embeddings-supabase
 
 Now you are ready to test out the app locally! To do this, simply run `npm run dev` under the project root.
 
-You can connect to the project with your browser typically at http://localhost:3000/.
+You can connect to the project with your browser typically at <http://localhost:3000/>.
 
 ### 6. Additional feature: Text your companions
 
@@ -176,7 +175,6 @@ e. On Twilio's UI, you can now click on "# Phone Numbers" -> "Manage" -> "[Activ
 f. Click on the phone number you just created from the list, scroll down to "Messaging Configuration" section and enter [your_app_url]/api/text in "A message comes in" section under "Webhook".
 
 <img width="1062" alt="Screen Shot 2023-07-10 at 11 08 55 PM" src="https://github.com/a16z-infra/companion-app/assets/3489963/d7905f13-a83a-47f8-ac74-b66698d4292b">
-
 
 g. Add your Twilio phone number in `companions.json` under the companion you want to text with. Make sure you include area code when adding the phone number ("+14050000000" instead of "4050000000")
 
@@ -243,22 +241,21 @@ red tape, being in one place for too long, people who are not genuine or authent
 
 ```
 
-2. Pick the language model that will power your companion's dialogue. This project supports OpenAI and Vicuna (an open source model). OpenAI has the advantage of faster responses, while Vicuna is less censored and more dynamic (it's commonly used for romantic chatbots).
+1. Pick the language model that will power your companion's dialogue. This project supports three backends: **OpenAI** (`chatgpt`) for fast, aligned cloud responses; **Llama 3** on **Replicate** (`llama3-8b` / `llama3-70b`) for open-weight models hosted in the cloud; and **Ollama** (`ollama`) for a model running locally on your own machine. Because the local model runs on your hardware with no provider content policy in the loop, you can choose an _uncensored_ open model — this project ships the foul-mouthed companion **Ruffy** on `dolphin-mistral` to demonstrate that. (The same lack of filtering is also why open models are popular for other unfiltered use cases, such as romantic chatbots.)
 
-3. Create embeddings based on content in the [companion name].md file - more on how to do this in [Generate embeddings](#4-generate-embeddings)
+2. Create embeddings based on content in the [companion name].md file - more on how to do this in [Generate embeddings](#4-generate-embeddings)
 
-4. Ask questions and have a conversation with your AI companion!
-
+3. Ask questions and have a conversation with your AI companion!
 
 ## Adding/modifying characters
 
 All character data is stored in the `companions/` directory. To add a companion,
 simply add a description to the list in `companions.json`. You can control the model used
-in the "llm" section - use "chatgpt" for OpenAI or "vicuna13b" for Vicuna.
+in the "llm" section - use "chatgpt" for OpenAI, "llama3-8b" / "llama3-70b" for Llama 3 on Replicate, or "ollama" for a local model.
 Put image files in `public/` in the root directory. Each character should have its own text file
 name `charactername.txt`. The format of the text file is as follows:
 
-```
+```text
 The character's core description that is included with every prompt, and it should only
 be a few sentences.
 
@@ -284,7 +281,7 @@ The **preamble** is used with every prompt so it should be relatively short. The
 Oh, there are so many.
 
 - Currently the UI only shows the current chat and response, losing the history.
-- Vicuna has a cold start problem so can take a couple of minutes to get a response for the initial chat.
+- The Replicate-hosted models (Rosie, Evelyn) have a cold start problem so can take a couple of minutes to get a response for the initial chat.
 - Error reporting is total crap. Particularly when deployed. So if you have a timeout, or other back end isue, it typically fails silently.
 - The Upstash message history is never cleared. To clear it, you have to go to Upstash and manually delete.
 
@@ -317,12 +314,12 @@ If you have tried out the Quickstart above, you probably know that we have only 
 
 To get started, run the following command:
 
-`
+```bash
 npm run export-to-character [COMPANION_NAME] [MODEL_NAME] [USER_ID]
-`
+```
 
 - `COMPANION_NAME`: name of your companion. i.e Alice
-- `MODEL_NAME`: `chatgpt` or `vicuna13b`
+- `MODEL_NAME`: `chatgpt`, `llama3-8b`, `llama3-70b`, or `ollama`
 - `USER_ID`: you can find this on Clerk, under "Users" -> click on your user -> copy "User ID"
 
 Once you run this script, you will see two files created under the root directory:
@@ -332,6 +329,6 @@ Once you run this script, you will see two files created under the root director
 
 ## Refs
 
-- https://js.langchain.com/docs/modules/indexes/vector_stores/integrations/pinecone
-- https://js.langchain.com/docs/modules/models/llms/integrations#replicate
-- https://js.langchain.com/docs/modules/chains/index_related_chains/retrieval_qa
+- <https://js.langchain.com/docs/modules/indexes/vector_stores/integrations/pinecone>
+- <https://js.langchain.com/docs/modules/models/llms/integrations#replicate>
+- <https://js.langchain.com/docs/modules/chains/index_related_chains/retrieval_qa>

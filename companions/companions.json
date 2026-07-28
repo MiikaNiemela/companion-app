@@ -10,14 +10,14 @@
     "name": "Evelyn",
     "title": "Adventurous and curious. Working at the space station",
     "imageUrl": "/evelyn.png",
-    "llm": "llama2-13b",
+    "llm": "llama3-70b",
     "phone": "OPTIONAL_COMPANION_PHONE_NUMBER"
   },
   {
     "name": "Rosie",
     "title": "I'm a house robot who became aware",
     "imageUrl": "/rosie.png",
-    "llm": "vicuna13b",
+    "llm": "llama3-8b",
     "phone": "OPTIONAL_COMPANION_PHONE_NUMBER"
   },
   {
@@ -28,10 +28,10 @@
     "phone": "OPTIONAL_COMPANION_PHONE_NUMBER"
   },
   {
-    "name": "Lucky",
-    "title": "I am a space corgi",
+    "name": "Ruffy",
+    "title": "A very good boy with a very filthy mouth",
     "imageUrl": "/corgi.png",
-    "llm": "vicuna13b",
+    "llm": "ollama",
     "phone": "OPTIONAL_COMPANION_PHONE_NUMBER"
   }
 ]
