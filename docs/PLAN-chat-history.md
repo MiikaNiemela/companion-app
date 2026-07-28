@@ -52,12 +52,12 @@ Target versions:
 | `@types/node` | 20.2.5 | 24.x |
 | `@types/react`, `@types/react-dom` | 18.2.x | latest 18 |
 
-- [ ] Node 18.8.0 → 24.x: bump the Dockerfile `NODE_VERSION` ARG and `@types/node`; add an `engines` field so the local/dev version can't silently drift from the image.
-- [ ] Next.js 13.5 → 14.2.x; React 18.2.0 → 18.3.x. Stays within both pinned majors; App Router APIs are stable across 13 → 14.
-- [ ] `@clerk/nextjs` 4.x → 6.x. `authMiddleware` is superseded by `clerkMiddleware` + `createRouteMatcher` — [middleware.ts](../src/middleware.ts) must be rewritten. Treat this as the highest-risk item: it is the app's only page-level gate. Also removes `@clerk/clerk-sdk-node` (imported by [text/route.ts](../src/app/api/text/route.ts) and all four model routes for the phone-number lookup) in favour of `clerkClient` from `@clerk/nextjs/server`.
-- [ ] `ai` 2.x → 5.x. The React hooks moved to the separate `@ai-sdk/react` package and `StreamingTextResponse` was removed in favour of the newer stream-response helpers — affects [QAModal.tsx](../src/components/QAModal.tsx) and every model route.
-- [ ] `experimental.serverActions` in [next.config.js](../next.config.js) is stable in Next 14; drop the flag.
-- [ ] Re-run `next lint` and a full manual pass: sign-in, gallery, one chat per backend. (`eslint-config-next` 14 still uses `.eslintrc` — the flat-config migration only becomes forced at Next 15 / ESLint 9, i.e. not in this phase.)
+- [x] Node 18.8.0 → 24.x: bump the Dockerfile `NODE_VERSION` ARG and `@types/node`; add an `engines` field so the local/dev version can't silently drift from the image.
+- [x] Next.js 13.5 → 14.2.x; React 18.2.0 → 18.3.x. Stays within both pinned majors; App Router APIs are stable across 13 → 14.
+- [x] `@clerk/nextjs` 4.x → 6.x. `authMiddleware` is superseded by `clerkMiddleware` + `createRouteMatcher` — [middleware.ts](../src/middleware.ts) must be rewritten. Treat this as the highest-risk item: it is the app's only page-level gate. Also removes `@clerk/clerk-sdk-node` (imported by [text/route.ts](../src/app/api/text/route.ts) and all four model routes for the phone-number lookup) in favour of `clerkClient` from `@clerk/nextjs/server`.
+- [x] `ai` 2.x → 5.x. The React hooks moved to the separate `@ai-sdk/react` package and `StreamingTextResponse` was removed in favour of the newer stream-response helpers — affects [QAModal.tsx](../src/components/QAModal.tsx) and every model route.
+- [x] `experimental.serverActions` in [next.config.js](../next.config.js) is stable in Next 14; drop the flag.
+- [x] Re-run `next lint` and a full manual pass: sign-in, gallery, one chat per backend. (`eslint-config-next` 14 still uses `.eslintrc` — the flat-config migration only becomes forced at Next 15 / ESLint 9, i.e. not in this phase.)
 
 Not in this phase, because it is a Next 15 change and the target is 14: the async request APIs (`headers()`, `cookies()`, `params`, `searchParams` becoming async). It moves to the future React 19 / Next 15+ item below.
 
