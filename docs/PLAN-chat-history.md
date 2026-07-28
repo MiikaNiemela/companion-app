@@ -1,4 +1,9 @@
-# Plan — conversation history view
+---
+title: Conversation history view plan
+description: Implementation plan and decisions for the companion conversation history UI
+ms.date: 2026-07-28
+ms.topic: concept
+---
 
 Working document. Goal: a scrollable view of the past conversation with a companion, backed by a unified chat-entry format and a shared storage abstraction.
 
@@ -27,8 +32,8 @@ Four phases, in order. Each is independently shippable.
 
 - [x] **Phase 0** — Framework upgrade
 - [x] **Phase 1** — Unified chat-entry storage
-- [ ] **Phase 2** — Server-side read path
-- [ ] **Phase 3** — History UI
+- [x] **Phase 2** — Server-side read path
+- [x] **Phase 3** — History UI
 
 ---
 
@@ -95,7 +100,7 @@ Fix the cause, not the symptom: one write path, one format, shared by every mode
 
 ### Phase 2 — Server-side read path
 
-- [x] `MemoryManager.readHistoryEntries(companionKey, limit)` — returns `string[]`, optionally with scores (`zrange({ withScores: true })`) so turns can carry timestamps. Leave `readLatestHistory` untouched so prompting behaviour cannot regress.
+- [x] `MemoryManager.readHistoryEntries(companionKey, limit)` — returns the newest raw entries as `string[]` in transcript order. Leave `readLatestHistory` untouched so prompting behaviour cannot regress.
 - [x] `getHistory(companionName)` server action in [actions.ts](../src/components/actions.ts):
   - resolve the user with Clerk `currentUser()`
   - resolve `modelName` from `companions.json` via `ConfigManager` — **never accept it from the client**, it is half the Redis key
@@ -108,16 +113,16 @@ Fix the cause, not the symptom: one write path, one format, shared by every mode
 
 ### Phase 3 — History UI
 
-- [ ] `ChatTurn.tsx` — wraps `ChatBlock` with speaker attribution and alignment. `ChatBlock` itself is unchanged; this is the missing layer between "one block" and "a conversation".
-- [ ] `ChatHistory.tsx` — `flex flex-col` list inside a `max-h-… overflow-y-auto` container; auto-scroll to bottom via a bottom-anchor ref + effect on turn count, with a "user has scrolled up" guard so streaming does not yank them back. Explicit loading, empty, and error states — do not copy the gallery's silent-catch pattern.
-- [ ] `QAModal.tsx` rewiring:
+- [x] `ChatTurn.tsx` — wraps `ChatBlock` with speaker attribution and alignment. `responseToChatBlocks` returns block data instead of pre-rendered elements so stored and streaming turns use the same leaf renderer.
+- [x] `ChatHistory.tsx` — `flex flex-col` list inside an `overflow-y-auto` container; auto-scroll to bottom via a bottom-anchor ref + effect on turn count, with a "user has scrolled up" guard so streaming does not yank them back. Includes explicit loading, empty, and error states.
+- [x] `QAModal.tsx` rewiring:
   - load history in an effect keyed on `open` + `example.name`
   - hold `turns` in state; append an optimistic user turn on submit
   - render the in-flight completion as a trailing companion turn (the `responseToChatBlocks` call moves into `ChatTurn`)
   - commit the finished reply to `turns` on the completion hook's finish callback
   - reset on close, alongside the existing `stop()`
   - layout flips: scrollable history above, input pinned below
-- [ ] Manual verification: empty history; a long history that scrolls; a companion whose stored history uses the old `###` format; close and reopen mid-stream.
+- [x] Manual verification: empty and long histories, desktop and mobile layouts, optimistic and streamed turns, bottom-follow and scroll-up guard, persistence after reopen, and close/reopen mid-stream. The test account had no stored legacy `###` entries; legacy data still reaches the UI through the Phase 1 tolerant parser.
 
 ---
 

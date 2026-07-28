@@ -1,4 +1,4 @@
-import { Redis, type ZRangeCommandOptions } from "@upstash/redis";
+import { Redis } from "@upstash/redis";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { Pinecone } from "@pinecone-database/pinecone";
 import { PineconeStore } from "@langchain/pinecone";
@@ -171,22 +171,30 @@ class MemoryManager {
     return recentChats;
   }
 
-  public async readHistoryEntries(companionKey: CompanionKey, limit: number): Promise<string[]> {
+  /**
+   * Reads the newest stored entries and returns them in transcript order.
+   * Redis serves the bounded query newest-first; reversing that small result
+   * keeps callers independent from sorted-set ordering details.
+   */
+  public async readHistoryEntries(
+    companionKey: CompanionKey,
+    limit: number
+  ): Promise<string[]> {
     if (!companionKey || typeof companionKey.userId == "undefined") {
       console.log("Companion key set incorrectly");
-      return [""];
+      return [];
     }
-  
+
     const key = this.generateRedisCompanionKey(companionKey);
-    const zRangeOptions: ZRangeCommandOptions = { rev: true, withScores: true, byScore: true };
-    let result = await this.history.zrange(key, Date.now(), 0, zRangeOptions);
-
-    result = result.slice(-1*limit);
-    const recentChats = result as string[];
-    return recentChats;
-
+    const result = await this.history.zrange<string[]>(key, Date.now(), 0, {
+      byScore: true,
+      rev: true,
+      offset: 0,
+      count: limit,
+    });
+    return result.reverse();
   }
-  
+
   /**
    * Writes a character file's seed chat as the user's first history, once.
    *

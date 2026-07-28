@@ -1,21 +1,26 @@
-# Frontend
+---
+title: Frontend
+description: Browser application structure, rendering model, and interface conventions
+ms.date: 2026-07-28
+ms.topic: reference
+---
 
-The browser-side application: what it is built with, how it is organised, and the patterns it follows. Server-side API routes, model backends, and the memory layer are out of scope — see [ARCHITECTURE.md](ARCHITECTURE.md).
+The browser-side application: what it is built with, how it is organised, and the patterns it follows. Server-side API routes, model backends, and the memory layer are out of scope. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Stack
 
 | Concern | Choice | Version |
 | --- | --- | --- |
-| Framework | Next.js, App Router | 13.5 |
-| UI library | React | 18.2 |
-| Language | TypeScript, `strict: true` | 5.1 |
+| Framework | Next.js, App Router | 14.2 |
+| UI library | React | 18.3 |
+| Language | TypeScript, `strict: true` | 5.9 |
 | Styling | Tailwind CSS + `@tailwindcss/forms`, PostCSS + Autoprefixer | 3.3 |
 | Headless components | `@headlessui/react` (Dialog, Transition) | 1.7 |
-| Auth UI | `@clerk/nextjs` | 4.21 |
-| Streaming chat | Vercel `ai` — `useCompletion` from `ai/react` | 2.1 |
-| Tooltips | `react-tooltip` | 5.16 |
-| Fonts | `next/font/google` — Inter, `latin` subset, self-hosted at build | — |
-| Lint | `next lint` / `eslint-config-next` | 8.42 |
+| Auth UI | `@clerk/nextjs` | 6.39 |
+| Streaming chat | Vercel AI SDK 5, `useCompletion` from `@ai-sdk/react` | 5.0 / 4.0 |
+| Tooltips | `react-tooltip` | 5.30 |
+| Fonts | `next/font/google`, Inter, `latin` subset, self-hosted at build | N/A |
+| Lint | ESLint / `eslint-config-next` | 8.42 / 14.2 |
 
 No component library, no CSS-in-JS, no state-management library, no client-side router beyond the App Router, no test framework.
 
@@ -31,9 +36,11 @@ src/app/
 src/components/
   Navbar.tsx                  server component — auth state, sign-in link / UserButton
   Examples.tsx                client component — companion gallery, owns modal state
-  QAModal.tsx                 client component — chat dialog, streaming completion
+  QAModal.tsx                 client component — history state and streaming lifecycle
+  ChatHistory.tsx             scrollable transcript and guarded bottom-follow
+  ChatTurn.tsx                speaker attribution and turn alignment
   ChatBlock.tsx               multimodal renderer (text / image / audio / video)
-  actions.ts                  "use server" — reads companions.json off disk
+  actions.ts                  "use server" — reads companions and typed history
   InputCard.tsx               not imported anywhere
   TextToImgModal.tsx          not imported anywhere
 ```
@@ -45,35 +52,55 @@ The whole UI is one route. Everything the user does happens on `/`, in a modal.
 Server components are the default; the client boundary is drawn as narrowly as the interaction requires.
 
 - [layout.tsx](../src/app/layout.tsx) and [page.tsx](../src/app/page.tsx) are server components. Page metadata (`title`, `description`) is exported statically from the layout.
-- [Navbar.tsx](../src/components/Navbar.tsx) is a server component and reads the session synchronously via Clerk's `auth()`, rendering either a `<UserButton />` or a sign-in link. No auth state is fetched in the browser.
-- [Examples.tsx](../src/components/Examples.tsx) and [QAModal.tsx](../src/components/QAModal.tsx) are `"use client"` — they need `useState`/`useEffect` and a streaming fetch.
-- Server Actions are enabled (`experimental.serverActions` in [next.config.js](../next.config.js)) and used once: `getCompanions()` in [actions.ts](../src/components/actions.ts) reads the companion registry from disk and returns it to the client as a raw JSON **string**, which the client parses.
+- [Navbar.tsx](../src/components/Navbar.tsx) is a server component and awaits Clerk's `auth()`, rendering either a `<UserButton />` or a sign-in link. No auth state is fetched in the browser.
+- [Examples.tsx](../src/components/Examples.tsx), [QAModal.tsx](../src/components/QAModal.tsx), and [ChatHistory.tsx](../src/components/ChatHistory.tsx) are `"use client"` because they own browser interaction, effects, refs, or streaming state.
+- [actions.ts](../src/components/actions.ts) exports two Server Actions. `getCompanions()` returns the registry as a JSON string; `getHistory()` authenticates with Clerk, resolves the model from the server-side registry, and returns typed `Turn[]` data.
 
 ## Patterns
 
-**Data loading.** The gallery is a client component that calls the server action from a `useEffect` on mount and stores the result in `useState`, initialised with a single blank placeholder entry. Errors are caught and logged to the console; there is no error or empty state in the UI.
+### Data loading
 
-**State.** All state is local `useState` in the two client components — no context, store, or URL state. `Examples` owns both the modal's open flag and the selected companion, and passes them down to `QAModal` as props (`open`, `setOpen`, `example`). Selecting a card sets both at once.
+The gallery calls `getCompanions()` from an effect on mount and stores the parsed result locally. When the dialog opens or the companion name changes, `QAModal` calls `getHistory()`. History loading has visible loading, empty, and error states; stale action results are ignored after close or companion change.
 
-**Chat.** `QAModal` delegates the request lifecycle entirely to `useCompletion`, configured per companion:
+### State
+
+State remains local. `Examples` owns the selected companion and modal visibility. `QAModal` owns the typed transcript, input, completion, and request state. `ChatHistory` keeps scroll-follow state in refs so token updates do not trigger unrelated renders. There is no context, external store, or URL state.
+
+### Chat request lifecycle
+
+`QAModal` uses `useCompletion`, configured per companion:
 
 ```ts
 useCompletion({ api: "/api/" + example.llm, headers: { name: example.name } })
 ```
 
-The endpoint is derived from the companion's `llm` field and the companion name travels in a custom HTTP header, not the body. The hook supplies `input`, `handleInputChange`, `handleSubmit`, `isLoading`, `completion`, `stop`, and the setters used to reset on close. Tokens arrive as a growing `completion` string.
+The endpoint is derived from the companion's `llm` field and the companion name travels in a custom HTTP header, not the body. Submitting appends an optimistic user turn and clears the input. Tokens render as a trailing companion turn; `onFinish` commits the final reply exactly once. Closing aborts the client stream and prevents a canceled callback from repopulating cleared state.
 
-**Rendering replies.** A `useEffect` watching `completion` re-runs [`responseToChatBlocks`](../src/components/ChatBlock.tsx) on every token and stores the resulting elements in state. That function accepts a string, a JSON string, an object, or an array, and renders `{text, mimeType, url}` blocks as text, audio, video, image, or link — the display contract any backend can target. Only the current exchange is shown; there is no transcript view.
+### Conversation rendering
 
-**Loading and disabled states.** Driven by `isLoading` combined with whether any blocks exist yet: the input is disabled and an inline spinner SVG is shown while a request is in flight with nothing streamed back.
+`ChatHistory` renders stored and in-flight turns in one scroll container. It follows the bottom while the reader remains near the latest turn; scrolling upward disables follow until the reader returns near the bottom. `ChatTurn` adds the `You` or companion label and alignment, then delegates each `{text, mimeType, url}` block to `ChatBlock`.
 
-**Modals.** Headless UI `Dialog` + `Transition.Root` with Tailwind classes for enter/leave animation. Closing calls `stop()` and clears both the input and the completion.
+`responseToChatBlocks` accepts a plain string, JSON string, object, or array and returns normalized block data. This remains the backend display contract for text, audio, video, image, and link responses.
 
-**Styling.** Utility classes inline in JSX throughout — no `@apply`, no component classes, no design tokens beyond Tailwind's defaults. The only custom theme extension is two background gradients in [tailwind.config.js](../tailwind.config.js). [globals.css](../src/app/globals.css) defines foreground/background CSS variables with a `prefers-color-scheme: dark` block, but the app hard-codes dark slate/gray utilities, so the light values are never visible. Conditional classes are built with string concatenation, plus a local `classNames` helper in the navbar.
+### Loading and disabled states
 
-**Images.** `next/image` with `width={0} height={0} sizes="100vw"` and a Tailwind size class — the pattern for letting CSS drive dimensions. Remote hosts must be allowlisted in `next.config.js` (`avatars.githubusercontent.com`, `replicate.delivery`, `tjzk.replicate.delivery`, `a16z.com`); companion avatars themselves are local files under `public/`.
+The input is disabled while history loads or a response is in flight. History has explicit loading, empty, and failure states, and completion failures appear next to the input. An always-enabled close button keeps the dialog dismissible while other controls are disabled.
 
-**Imports.** Path alias `@/*` → `./src/*` from [tsconfig.json](../tsconfig.json).
+### Modals
+
+Headless UI `Dialog` and `Transition.Root` provide focus management and enter/leave animation. The dialog has an explicit close button and also supports backdrop dismissal. Closing aborts streaming and clears input, completion, transcript, and history errors.
+
+### Styling
+
+Utility classes remain inline in JSX. The fixed-height dialog uses a flex column: the transcript grows and scrolls while the input stays pinned below it. User turns use sky blue and right alignment; companion turns use slate and left alignment. Turn widths remain bounded on mobile and desktop.
+
+### Images
+
+Gallery images use `next/image` with `width={0} height={0} sizes="100vw"` and a Tailwind size class. Remote hosts must be allowlisted in [next.config.js](../next.config.js); companion avatars are local files under `public/`. Multimodal response images remain dynamic `<img>` elements because their URLs arrive in model output.
+
+### Imports
+
+The `@/*` path alias maps to `./src/*` in [tsconfig.json](../tsconfig.json).
 
 ## Auth in the UI
 
@@ -85,4 +112,3 @@ Documented because the code is in the tree, not because it works:
 
 - `InputCard.tsx` (a "paste a blog link" form) and `TextToImgModal.tsx` are never imported. The latter posts to `/api/txt2img`, which does not exist in this repo, and calls `dotenv.config()` at module scope in a client file.
 - `react-github-btn` and `ts-md5` are dependencies with no import anywhere; the navbar's GitHub star button is a hand-written `<iframe>` instead.
-- `QAModal.tsx` declares a module-level `var last_name = ""` that is never read, and constructs a dummy `example` object when none is passed so the completion hook can initialise.

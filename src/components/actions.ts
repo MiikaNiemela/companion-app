@@ -6,28 +6,40 @@ import { parseTranscript } from "@/app/utils/transcript";
 import { currentUser } from "@clerk/nextjs/server";
 // server action to allow configuration of LLM from .env.local
 
-import dotenv from "dotenv";
-import { parse } from "path";
-
-
 export async function getCompanions() {
   const COMPFILE = "./companions/companions.json";
-  var companions = [];
   // console.log("Loading companion descriptions from "+COMPFILE);
   var fs = require('fs');
   const data = fs.readFileSync(COMPFILE);
   console.log(String(data));
   // run a parse here to force a server side error if the JSON is improperly formatted
   // It's much more difficult to debug client side
-  var js = JSON.parse(String(data));
+  JSON.parse(String(data));
   return String(data);
 }
 
+/**
+ * Loads the signed-in user's recent turns for a companion.
+ * The model name is resolved from the server-side registry because it forms
+ * part of the Redis key and must not be selected by the browser.
+ */
 export async function getHistory(companionName: string) {
   const user = await currentUser();
-  const modelName = ConfigManager.getInstance().getConfig("llm", companionName);
-  const companionKey: CompanionKey = { companionName, modelName, userId: user?.id as string,}
+  if (!user) {
+    throw new Error("You must be signed in to load chat history.");
+  }
+
+  const companion = ConfigManager.getInstance().getConfig("name", companionName);
+  if (!companion?.llm) {
+    throw new Error(`Unknown companion: ${companionName}`);
+  }
+
+  const companionKey: CompanionKey = {
+    companionName,
+    modelName: companion.llm,
+    userId: user.id,
+  };
   const memoryManager = await MemoryManager.getInstance();
-  const historyStrings = await memoryManager.readHistoryEntries(companionKey, 30)
-  return parseTranscript(historyStrings, companionName)
+  const historyStrings = await memoryManager.readHistoryEntries(companionKey, 30);
+  return parseTranscript(historyStrings, companionName);
 }

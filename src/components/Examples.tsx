@@ -12,6 +12,7 @@ export default function Examples() {
     name: "",
     title: "",
     imageUrl: "",
+    llm: "",
   });
   const [examples, setExamples] = useState([
     {
@@ -57,7 +58,7 @@ export default function Examples() {
         role="list"
         className="mt-14 m-auto max-w-3xl grid grid-cols-1 gap-6 lg:grid-cols-2"
       >
-        {examples.map((example, i) => (
+        {examples.map((example) => (
           <li
             key={example.name}
             onClick={() => {

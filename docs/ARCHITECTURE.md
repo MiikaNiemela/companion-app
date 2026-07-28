@@ -1,4 +1,9 @@
-# Architecture
+---
+title: Architecture
+description: System architecture, service boundaries, and known engineering concerns
+ms.date: 2026-07-28
+ms.topic: reference
+---
 
 AI companion chat app: pick a character, talk to it in the browser or by SMS, and it answers in persona with memory of what you've said before.
 
@@ -54,7 +59,7 @@ flowchart TB
 
     subgraph client["Client (Next.js App Router, React)"]
         gallery["Companion gallery<br/>pick a character"]
-        chat["Chat modal<br/>streamed reply, multimodal blocks"]
+        chat["Chat modal<br/>history, streamed reply, multimodal blocks"]
     end
 
     subgraph core["Conversation pipeline (one route per model backend)"]
@@ -96,7 +101,7 @@ flowchart TB
 | Companion catalog | A registry file plus one text file per character defines the whole cast. A character file holds a short always-on persona *preamble*, a *seed chat* that bootstraps a new user's history, and a *backstory* that is embedded for retrieval. |
 | Model dispatch | Each character declares which model backend it uses; that name **is** the API route. Adding a backend means adding a route — no other wiring. |
 | Memory | Short-term: the last turns of that user's conversation. Long-term: semantic lookup over the character's backstory, scoped so companions never retrieve each other's. Memory is keyed by companion + model + user, so changing a character's model starts a fresh conversation. |
-| Channels | Web chat streams tokens into a multimodal renderer (text / image / audio / video blocks). SMS reuses the same pipeline and returns a single message instead of a stream. |
+| Channels | Web chat loads recent history and streams new tokens into a multimodal renderer (text / image / audio / video blocks). SMS reuses the same pipeline and returns a single message instead of a stream. |
 | Identity & access | Two enforcement points, deliberately. Middleware gates the *pages* and redirects anonymous visitors to hosted sign-in / sign-up; it marks the API surface public, so every route **re-verifies the caller itself** before doing any work. Browser callers are resolved from the session, SMS callers by verified phone number. |
 | Rate limiting | A sliding window of 10 requests / 10 s, keyed by route URL + caller, applied as the first step of every entry point. Cross-cutting, but the key includes the route, so each model backend has its own budget per user. |
 
@@ -267,7 +272,7 @@ This is a demo-grade codebase. The list below maps the places where the implemen
 ### Data lifecycle
 
 - **Chat history is unbounded and permanent.** Redis keys are never expired, capped, or deleted; removing a user's conversation means opening the Upstash console. There is no delete path, no export, and no retention policy for what is by nature personal conversational data.
-- **History is write-only from the UI's perspective.** The server accumulates every turn but exposes no read endpoint, so the client can only ever display the current exchange. The stored history exists solely to feed the prompt.
+- **Visible history is capped without paging.** The server action and modal expose the newest 30 stored entries. Older turns remain in Redis but cannot be loaded in the UI, and there is no "load older" control.
 - **Character content and its index drift independently.** Editing a backstory has no effect until the indexing script is re-run, and there is no version, checksum, or staleness signal linking the two.
 
 ### Configuration and failure behaviour
