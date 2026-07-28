@@ -2,10 +2,8 @@
 
 import {Fragment, useEffect, useState} from "react";
 import { Dialog, Transition } from "@headlessui/react";
-import { useCompletion } from "ai/react";
-import {ChatBlock, responseToChatBlocks} from "@/components/ChatBlock";
-
-var last_name = "";
+import { useCompletion } from "@ai-sdk/react";
+import {responseToChatBlocks} from "@/components/ChatBlock";
 
 export default function QAModal({
   open,
